@@ -70,6 +70,7 @@ with st.expander("⚙️ Zona Administrador: Registrar Resultados"):
             if row['Partido'] == partido_str:
                 df_apuestas.at[i, 'Puntos'] = calcular_puntos(row['Pred_Local'], row['Pred_Visita'], r_l, r_v)
         set_with_dataframe(sh.worksheet('Apuestas'), df_apuestas)
+        st.cache_data.clear() # Limpieza para actualizar ranking
         st.success("¡Ranking actualizado!")
         st.rerun()
 
@@ -80,6 +81,7 @@ usuario = st.selectbox("Selecciona tu nombre:", lista_usuarios)
 fase_user = st.selectbox("Selecciona ronda:", fases_disponibles, key="fase_user")
 
 df_fase = load_data(fase_user)
+
 # Filtrado normalizado para evitar fatiga visual
 if 'Usuario' in df_apuestas.columns:
     apuestas_usuario = df_apuestas[df_apuestas['Usuario'] == usuario].copy()
@@ -103,8 +105,13 @@ else:
         if pendientes_de_guardar.empty:
             st.warning("Por favor, rellena resultados antes de guardar.")
         else:
-            nuevas = [[usuario, f"{row['Local']} vs {row['Visita']}", int(row['Pred_Local']), int(row['Pred_Visita']), 0] 
-                      for _, row in pendientes_de_guardar.iterrows()]
-            sh.worksheet('Apuestas').append_rows(nuevas)
-            st.success("¡Guardado!")
+            # Barra de estado visual mientras se guarda
+            with st.status("Guardando en la nube...", expanded=True) as status:
+                nuevas = [[usuario, f"{row['Local']} vs {row['Visita']}", int(row['Pred_Local']), int(row['Pred_Visita']), 0] 
+                          for _, row in pendientes_de_guardar.iterrows()]
+                sh.worksheet('Apuestas').append_rows(nuevas)
+                st.write("Actualizando datos y recargando...")
+                st.cache_data.clear() # Limpiamos caché para que desaparezcan de pendientes
+                status.update(label="¡Predicciones guardadas con éxito!", state="complete")
+            
             st.rerun()
