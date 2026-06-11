@@ -8,7 +8,6 @@ st.set_page_config(layout="wide", page_title="Porra Mundialista")
 st.title("⚽ Porra Mundialista - Dashboard Oficial ⚽")
 
 # --- CONEXIÓN SEGURA A GOOGLE SHEETS ---
-# Utiliza los secretos configurados en Streamlit Cloud
 creds_dict = st.secrets["gcp_service_account"]
 scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
 creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
@@ -50,9 +49,12 @@ st.subheader("📝 Realizar Predicciones")
 fase_user = st.selectbox("Selecciona la ronda:", fases_disponibles)
 df_fase = load_data(fase_user)
 
-# Formateo de fechas y horas
-df_fase['Fecha'] = pd.to_datetime(df_fase['Fecha']).dt.strftime('%d/%m/%y')
-df_fase['Hora'] = pd.to_datetime(df_fase['Hora'], format='%H:%M:%S').dt.strftime('%H:%M')
+# --- CORRECCIÓN DE FECHAS Y HORAS (Robustez ante errores) ---
+df_fase['Fecha'] = pd.to_datetime(df_fase['Fecha'], errors='coerce')
+df_fase['Fecha'] = df_fase['Fecha'].dt.strftime('%d/%m/%y').fillna("Sin fecha")
+
+df_fase['Hora'] = pd.to_datetime(df_fase['Hora'], format='%H:%M:%S', errors='coerce')
+df_fase['Hora'] = df_fase['Hora'].dt.strftime('%H:%M').fillna("00:00")
 
 usuario = st.text_input("Tu Nombre:")
 
