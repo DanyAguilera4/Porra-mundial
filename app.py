@@ -19,16 +19,14 @@ def get_connection():
 client = get_connection()
 sh = client.open_by_key('1-n82WoLSk3b0XE59qIaTrf69R44qAAqu6iJqlDj0RDI')
 
-@st.cache_data(ttl=10) # TTL corto para que el ranking se refresque rápido
+@st.cache_data(ttl=10)
 def load_data(sheet_name):
     return pd.DataFrame(sh.worksheet(sheet_name).get_all_records())
 
 # --- LÓGICA DE PUNTUACIÓN ---
 def calcular_puntos(pred_local, pred_visita, real_local, real_visita):
-    # 3 pts: Resultado exacto
     if pred_local == real_local and pred_visita == real_visita:
         return 3
-    # 1 pt: Acertar ganador (si no fue exacto)
     pred_g = "L" if pred_local > pred_visita else ("V" if pred_visita > pred_local else "E")
     real_g = "L" if real_local > real_visita else ("V" if real_visita > real_local else "E")
     return 1 if pred_g == real_g else 0
@@ -39,6 +37,7 @@ fases_disponibles = [w.title for w in sh.worksheets() if w.title != 'Apuestas']
 # 1. RANKING
 st.header("🏆 Clasificación General 🏆")
 df_apuestas = load_data('Apuestas')
+
 if not df_apuestas.empty and 'Puntos' in df_apuestas.columns:
     ranking = df_apuestas.groupby('Usuario')['Puntos'].sum().sort_values(ascending=False).reset_index()
     st.table(ranking)
@@ -61,7 +60,7 @@ with st.expander("⚙️ Zona Administrador: Registrar Resultados"):
         ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Local') + 1, r_l)
         ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Visita') + 1, r_v)
         
-        # Recalcular puntos de todos los usuarios
+        # Recalcular puntos
         partido_str = f"{df_admin.at[idx, 'Local']} vs {df_admin.at[idx, 'Visita']}"
         for i, row in df_apuestas.iterrows():
             if row['Partido'] == partido_str:
@@ -73,17 +72,22 @@ with st.expander("⚙️ Zona Administrador: Registrar Resultados"):
 # 3. ZONA PREDICCIONES
 st.subheader("📝 Realizar Predicciones")
 
-# LISTA DE USUARIOS (Puedes añadir nombres aquí)
-lista_usuarios = ["Dany", "Daniel", "Maria", "Juan", "Pedro"] 
+lista_usuarios = ["Dany", "Dani Veliz", "Raúl", "Andoni", "Endika", "Mikel", "Igor", "Jonathan", "Alberto", "Jon", "Hiago"]
 usuario = st.selectbox("Selecciona tu nombre:", lista_usuarios)
 fase_user = st.selectbox("Selecciona ronda:", fases_disponibles, key="fase_user")
 
 df_fase = load_data(fase_user)
-apuestas_usuario = df_apuestas[df_apuestas['Usuario'] == usuario]
-partidos_ya_apostados = apuestas_usuario['Partido'].tolist()
 
-# Filtrar: Mostrar solo lo que falta por apostar
-df_pendientes = df_fase[~df_fase.apply(lambda x: f"{x['Local']} vs {x['Visita']}" in partidos_ya_apostados, axis=1)]
+# Aseguramos que df_apuestas tenga la columna 'Usuario' antes de filtrar
+if 'Usuario' in df_apuestas.columns:
+    apuestas_usuario = df_apuestas[df_apuestas['Usuario'] == usuario]
+    partidos_ya_apostados = apuestas_usuario['Partido'].tolist()
+    
+    # Filtrar: Mostrar solo lo que falta por apostar
+    df_pendientes = df_fase[~df_fase.apply(lambda x: f"{x['Local']} vs {x['Visita']}" in partidos_ya_apostados, axis=1)]
+else:
+    df_pendientes = df_fase
+    st.warning("La hoja de Apuestas está vacía o no tiene la columna 'Usuario'.")
 
 if df_pendientes.empty:
     st.info(f"¡{usuario}, ya has completado todos tus partidos en esta fase!")
