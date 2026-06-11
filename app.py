@@ -15,7 +15,7 @@ creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
 client = gspread.authorize(creds)
 
 # Tu ID de hoja de cálculo
-sheet_id = '17hH1ixuvI16PCtYsbInV2iluF33w1Bg5' 
+sheet_id = '1743567490' 
 sh = client.open_by_key(sheet_id)
 
 # Función para cargar datos desde las hojas de Google
