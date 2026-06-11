@@ -45,7 +45,8 @@ def calcular_puntos(pred_local, pred_visita, real_local, real_visita):
         return 0
 
 # --- INTERFAZ ---
-hojas = [w.title for w in sh.worksheets() if w.title != 'Apuestas']
+# Se excluye 'Usuarios' de las fases del torneo
+hojas = [w.title for w in sh.worksheets() if w.title not in ['Apuestas', 'Usuarios']]
 
 # 1. RANKING
 st.header("🏆 Clasificación General 🏆")
@@ -115,7 +116,14 @@ with st.expander("⚙️ Zona Admin: Registrar Resultados"):
 
 # 3. ZONA PREDICCIONES
 st.subheader("📝 Realizar Predicciones")
-lista_usuarios = ["Dany", "Dani Veliz", "Raúl", "Andoni", "Endika", "Mikel", "Igor", "Jonathan", "Alberto", "Jon", "Hiago"]
+
+# Carga dinámica de usuarios desde Google Sheets con tu lista original como respaldo
+df_usuarios = load_data('Usuarios')
+if not df_usuarios.empty and 'Usuario' in df_usuarios.columns:
+    lista_usuarios = df_usuarios['Usuario'].astype(str).str.strip().unique().tolist()
+else:
+    lista_usuarios = ["Dany", "Dani Veliz", "Raúl", "Andoni", "Endika", "Mikel", "Igor", "Jonathan", "Alberto", "Jon", "Hiago"]
+
 usuario = st.selectbox("Selecciona tu nombre:", lista_usuarios)
 fase_user = st.selectbox("Selecciona Fase:", hojas, key="user_fase")
 df_fase = load_data(fase_user)
