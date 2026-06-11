@@ -23,7 +23,7 @@ sh = client.open_by_key('1-n82WoLSk3b0XE59qIaTrf69R44qAAqu6iJqlDj0RDI')
 def load_data(sheet_name):
     try:
         data = sh.worksheet(sheet_name).get_all_records()
-        if not data: return pd.DataFrame(columns=['Usuario', 'Partido', 'Pred_Local', 'Pred_Visita', 'Puntos'])
+        if not data: return pd.DataFrame(columns=['Usuario', 'Partido', 'Pred_Local', 'Pred_Visita', 'Puntos', 'Jornada'])
         return pd.DataFrame(data)
     except:
         return pd.DataFrame()
@@ -37,7 +37,7 @@ def calcular_puntos(pred_local, pred_visita, real_local, real_visita):
     return 1 if pred_g == real_g else 0
 
 # --- INTERFAZ ---
-fases_disponibles = [w.title for w in sh.worksheets() if w.title != 'Apuestas']
+hojas = [w.title for w in sh.worksheets() if w.title != 'Apuestas']
 
 # 1. RANKING
 st.header("🏆 Clasificación General 🏆")
@@ -51,10 +51,14 @@ st.divider()
 
 # 2. ZONA ADMINISTRADOR
 with st.expander("⚙️ Zona Administrador: Registrar Resultados"):
-    fase_admin = st.selectbox("Selecciona Jornada:", fases_disponibles, key="admin_jornada")
+    fase_admin = st.selectbox("Selecciona Fase:", hojas, key="admin_fase")
     df_admin = load_data(fase_admin)
-    partido_sel = st.selectbox("Partido:", df_admin['Local'] + " vs " + df_admin['Visita'])
-    idx = df_admin[df_admin['Local'] + " vs " + df_admin['Visita'] == partido_sel].index[0]
+    # Filtro por jornada en admin
+    jornada_admin = st.selectbox("Selecciona Jornada:", sorted(df_admin['Jornada'].unique()), key="admin_jor")
+    df_admin_filt = df_admin[df_admin['Jornada'] == jornada_admin]
+    
+    partido_sel = st.selectbox("Partido:", df_admin_filt['Local'] + " vs " + df_admin_filt['Visita'])
+    idx = df_admin_filt[df_admin_filt['Local'] + " vs " + df_admin_filt['Visita'] == partido_sel].index[0]
     
     col1, col2 = st.columns(2)
     r_l = col1.number_input("Goles Local", 0, step=1)
@@ -78,24 +82,23 @@ with st.expander("⚙️ Zona Administrador: Registrar Resultados"):
 st.subheader("📝 Realizar Predicciones")
 lista_usuarios = ["Dany", "Dani Veliz", "Raúl", "Andoni", "Endika", "Mikel", "Igor", "Jonathan", "Alberto", "Jon", "Hiago"]
 usuario = st.selectbox("Selecciona tu nombre:", lista_usuarios)
-# Aquí está el desplegable de Jornada
-fase_user = st.selectbox("Selecciona Jornada:", fases_disponibles, key="user_jornada")
-
+fase_user = st.selectbox("Selecciona Fase:", hojas, key="user_fase")
 df_fase = load_data(fase_user)
+# Selector de Jornada basado en la columna del Excel
+jornada_user = st.selectbox("Selecciona Jornada:", sorted(df_fase['Jornada'].unique()), key="user_jor")
+df_fase_filt = df_fase[df_fase['Jornada'] == jornada_user]
 
-# Filtrado normalizado para evitar fatiga visual
 if 'Usuario' in df_apuestas.columns:
     apuestas_usuario = df_apuestas[df_apuestas['Usuario'] == usuario].copy()
     apuestas_usuario['partido_norm'] = apuestas_usuario['Partido'].str.strip().str.lower()
-    partidos_ya_apostados = apuestas_usuario['partido_norm'].tolist()
-    df_pendientes = df_fase[~df_fase.apply(lambda x: f"{x['Local']} vs {x['Visita']}".strip().lower() in partidos_ya_apostados, axis=1)]
+    df_pendientes = df_fase_filt[~df_fase_filt.apply(lambda x: f"{x['Local']} vs {x['Visita']}".strip().lower() in apuestas_usuario['partido_norm'].tolist(), axis=1)]
 else:
-    df_pendientes = df_fase
+    df_pendientes = df_fase_filt
 
 if df_pendientes.empty:
-    st.info(f"¡{usuario}, ya has completado todos tus partidos en esta fase!")
+    st.info(f"¡{usuario}, ya has completado todos tus partidos en esta jornada!")
 else:
-    st.write(f"Partidos pendientes para **{usuario}** en **{fase_user}**: {len(df_pendientes)}")
+    st.write(f"Partidos pendientes para **{usuario}** en {jornada_user}: {len(df_pendientes)}")
     df_editor = df_pendientes[['Local', 'Visita']].copy()
     df_editor['Pred_Local'] = None
     df_editor['Pred_Visita'] = None
@@ -110,8 +113,6 @@ else:
                 nuevas = [[usuario, f"{row['Local']} vs {row['Visita']}", int(row['Pred_Local']), int(row['Pred_Visita']), 0] 
                           for _, row in pendientes_de_guardar.iterrows()]
                 sh.worksheet('Apuestas').append_rows(nuevas)
-                st.write("Actualizando datos y recargando...")
                 st.cache_data.clear()
                 status.update(label="¡Predicciones guardadas con éxito!", state="complete")
-            
             st.rerun()
