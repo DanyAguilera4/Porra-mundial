@@ -13,27 +13,60 @@ scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/au
 creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
 client = gspread.authorize(creds)
 
-# ID de la hoja de cálculo (formato Google Sheets nativo)
+# ID de tu hoja de cálculo convertido a Google Sheets
 sheet_id = '1-n82WoLSk3b0XE59qIaTrf69R44qAAqu6iJqlDj0RDI' 
 sh = client.open_by_key(sheet_id)
 
+# Función para cargar datos
 def load_data(sheet_name):
-    return pd.DataFrame(sh.worksheet(sheet_name).get_all_records())
+    worksheet = sh.worksheet(sheet_name)
+    data = worksheet.get_all_records()
+    return pd.DataFrame(data)
 
-# --- ZONA DE ADMINISTRADOR ---
+# --- PANEL DE ADMINISTRADOR (Sidebar) ---
 with st.sidebar:
-    st.header("⚙️ Panel Admin")
-    admin_pass = st.text_input("Contraseña Admin", type="password")
-    if admin_pass == "1234": # Cambia "1234" por tu contraseña real
+    st.header("⚙️ Panel de Control")
+    admin_pass = st.text_input("Contraseña Administrador", type="password")
+    
+    if admin_pass == "1234":
         st.success("Acceso Admin concedido")
-        if st.button("Recargar datos"):
-            st.cache_data.clear()
-        st.subheader("Datos de Apuestas")
-        st.dataframe(load_data('Apuestas'))
+        st.divider()
+        st.subheader("Registrar Resultados Oficiales")
+        
+        # Selección de fase para actualizar resultados
+        todas_las_fases = [w.title for w in sh.worksheets() if w.title != 'Apuestas']
+        fase_admin = st.selectbox("Selecciona fase para añadir resultados:", todas_las_fases)
+        
+        df_admin = load_data(fase_admin)
+        
+        # Editor para que el admin ponga los goles reales
+        st.write(f"Introduce los goles reales para {fase_admin}:")
+        admin_editor = st.data_editor(
+            df_admin,
+            hide_index=True,
+            use_container_width=True,
+            disabled=("Local", "Visita", "Fecha", "Hora") # El admin solo edita goles
+        )
+        
+        if st.button("Actualizar Resultados Oficiales"):
+            try:
+                ws_actualizar = sh.worksheet(fase_admin)
+                # Convertimos el dataframe editado a lista de listas para subirlo
+                # Incluimos los encabezados
+                datos_nuevos = [admin_editor.columns.values.tolist()] + admin_editor.values.tolist()
+                
+                # Limpiar y actualizar la hoja completa
+                ws_actualizar.clear()
+                ws_actualizar.update('A1', datos_nuevos)
+                
+                st.success(f"¡Resultados de {fase_admin} actualizados correctamente!")
+                st.balloons()
+            except Exception as e:
+                st.error(f"Error al actualizar: {e}")
     else:
-        st.info("Introduce contraseña para ver panel admin")
+        st.info("Introduce la contraseña para gestionar resultados oficiales.")
 
-# --- CARGA INICIAL ---
+# --- CARGA DE DATOS PARA USUARIOS ---
 try:
     df_apuestas = load_data('Apuestas')
     fases_disponibles = [w.title for w in sh.worksheets() if w.title != 'Apuestas']
@@ -41,7 +74,7 @@ except Exception as e:
     st.error(f"Error cargando los datos: {e}")
     st.stop()
 
-# --- RANKING ---
+# --- 🏆 RANKING ---
 st.header("🏆 Clasificación General 🏆")
 if not df_apuestas.empty and 'Puntos' in df_apuestas.columns:
     ranking = df_apuestas.groupby('Usuario')['Puntos'].sum().sort_values(ascending=False)
@@ -55,32 +88,33 @@ else:
 
 st.divider()
 
-# --- ZONA DE PREDICCIONES ---
+# --- 📝 ZONA DE PREDICCIONES (USUARIOS) ---
 st.subheader("📝 Realizar Predicciones")
-fase_user = st.selectbox("Selecciona la ronda:", fases_disponibles)
+fase_user = st.selectbox("Selecciona la ronda para apostar:", fases_disponibles, key="user_fase")
 df_fase = load_data(fase_user)
 
-# --- CORRECCIÓN ORDEN Y FORMATO DE FECHAS ---
-# Convertimos a fechas reales para ordenar cronológicamente
+# --- FORMATEO ROBUSTO DE FECHAS ---
 df_fase['Fecha_dt'] = pd.to_datetime(df_fase['Fecha'], errors='coerce')
 df_fase['Hora_dt'] = pd.to_datetime(df_fase['Hora'], format='%H:%M:%S', errors='coerce')
 df_fase = df_fase.sort_values(by=['Fecha_dt', 'Hora_dt'])
 
-# Formateamos para mostrar al usuario
-df_fase['Fecha'] = df_fase['Fecha_dt'].dt.strftime('%d/%m/%y').fillna("Sin fecha")
-df_fase['Hora'] = df_fase['Hora_dt'].dt.strftime('%H:%M').fillna("00:00")
-df_fase = df_fase.drop(columns=['Fecha_dt', 'Hora_dt'])
+df_fase['Fecha_Show'] = df_fase['Fecha_dt'].dt.strftime('%d/%m/%y').fillna("Sin fecha")
+df_fase['Hora_Show'] = df_fase['Hora_dt'].dt.strftime('%H:%M').fillna("00:00")
 
 usuario = st.text_input("Tu Nombre:")
 
-# Preparar tabla para el editor
-columnas_ordenadas = ['Local', 'Visita', 'Fecha', 'Hora']
-df_editor = df_fase[columnas_ordenadas].copy()
-df_editor['Pred_Local'] = 0
-df_editor['Pred_Visita'] = 0
+# Preparar tabla para el usuario
+df_user_editor = pd.DataFrame({
+    'Local': df_fase['Local'],
+    'Visita': df_fase['Visita'],
+    'Fecha': df_fase['Fecha_Show'],
+    'Hora': df_fase['Hora_Show'],
+    'Pred_Local': 0,
+    'Pred_Visita': 0
+})
 
 preds = st.data_editor(
-    df_editor, 
+    df_user_editor, 
     hide_index=True, 
     use_container_width=True,
     column_config={
@@ -89,13 +123,22 @@ preds = st.data_editor(
     }
 )
 
-if st.button("Guardar Predicciones"):
+if st.button("Guardar Mis Predicciones"):
     if not usuario: 
         st.error("Por favor, ingresa tu nombre.")
     else:
         worksheet_apuestas = sh.worksheet('Apuestas')
+        filas_nuevas = []
         for _, row in preds.iterrows():
-            worksheet_apuestas.append_row([usuario, f"{row['Local']} vs {row['Visita']}", 
-                                           row['Pred_Local'], row['Pred_Visita'], 0])
-        st.success(f"¡Predicciones guardadas para {usuario}!")
+            filas_nuevas.append([
+                usuario, 
+                f"{row['Local']} vs {row['Visita']}", 
+                row['Pred_Local'], 
+                row['Pred_Visita'], 
+                0 # Puntos iniciales
+            ])
+        
+        # Subir todas las filas nuevas
+        worksheet_apuestas.append_rows(filas_nuevas)
+        st.success(f"¡Predicciones guardadas correctamente para {usuario}!")
         st.balloons()
