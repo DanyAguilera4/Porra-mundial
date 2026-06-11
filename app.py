@@ -4,8 +4,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- CONFIGURACIÓN DE PÁGINA ---
-st.set_page_config(layout="wide", page_title="Polla Mundialista")
-st.title("⚽ Polla Mundialista - Dashboard Oficial")
+st.set_page_config(layout="wide", page_title="Porra Mundialista")
+st.title("⚽ Porra Mundialista - Operadores Básicos ⚽")
 
 # --- CONEXIÓN A GOOGLE SHEETS ---
 @st.cache_resource
@@ -28,7 +28,7 @@ df_apuestas = load_data('Apuestas')
 fases_disponibles = [w.title for w in sh.worksheets() if w.title != 'Apuestas']
 
 # --- 🏆 RANKING ---
-st.header("📊 Clasificación General")
+st.header("🏆 Clasificación General 🏆")
 if not df_apuestas.empty and 'Puntos' in df_apuestas.columns:
     ranking = df_apuestas.groupby('Usuario')['Puntos'].sum().sort_values(ascending=False)
     c_r1, c_r2 = st.columns([1, 2])
@@ -42,7 +42,7 @@ else:
 st.divider()
 
 # --- ⚙️ ZONA ADMINISTRADOR ---
-with st.expander("⚙️ Zona Administrador: Registrar Resultados"):
+with st.expander("⚙️ Registrar Resultados"):
     fase_admin = st.selectbox("Selecciona la fase:", fases_disponibles)
     df_admin = load_data(fase_admin)
     
