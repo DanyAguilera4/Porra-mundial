@@ -13,15 +13,27 @@ scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/au
 creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
 client = gspread.authorize(creds)
 
-# Tu ID de hoja de cálculo
+# ID de la hoja de cálculo (formato Google Sheets nativo)
 sheet_id = '1-n82WoLSk3b0XE59qIaTrf69R44qAAqu6iJqlDj0RDI' 
 sh = client.open_by_key(sheet_id)
 
-# Función para cargar datos desde las hojas de Google
 def load_data(sheet_name):
     return pd.DataFrame(sh.worksheet(sheet_name).get_all_records())
 
-# Carga inicial de datos
+# --- ZONA DE ADMINISTRADOR ---
+with st.sidebar:
+    st.header("⚙️ Panel Admin")
+    admin_pass = st.text_input("Contraseña Admin", type="password")
+    if admin_pass == "1234": # Cambia "1234" por tu contraseña real
+        st.success("Acceso Admin concedido")
+        if st.button("Recargar datos"):
+            st.cache_data.clear()
+        st.subheader("Datos de Apuestas")
+        st.dataframe(load_data('Apuestas'))
+    else:
+        st.info("Introduce contraseña para ver panel admin")
+
+# --- CARGA INICIAL ---
 try:
     df_apuestas = load_data('Apuestas')
     fases_disponibles = [w.title for w in sh.worksheets() if w.title != 'Apuestas']
@@ -29,11 +41,10 @@ except Exception as e:
     st.error(f"Error cargando los datos: {e}")
     st.stop()
 
-# --- 🏆 RANKING (Siempre visible) ---
+# --- RANKING ---
 st.header("🏆 Clasificación General 🏆")
 if not df_apuestas.empty and 'Puntos' in df_apuestas.columns:
     ranking = df_apuestas.groupby('Usuario')['Puntos'].sum().sort_values(ascending=False)
-    
     col1, col2 = st.columns([1, 2])
     with col1:
         st.dataframe(ranking, use_container_width=True)
@@ -44,17 +55,21 @@ else:
 
 st.divider()
 
-# --- 📝 ZONA DE PREDICCIONES ---
+# --- ZONA DE PREDICCIONES ---
 st.subheader("📝 Realizar Predicciones")
 fase_user = st.selectbox("Selecciona la ronda:", fases_disponibles)
 df_fase = load_data(fase_user)
 
-# --- CORRECCIÓN DE FECHAS Y HORAS (Robustez ante errores) ---
-df_fase['Fecha'] = pd.to_datetime(df_fase['Fecha'], errors='coerce')
-df_fase['Fecha'] = df_fase['Fecha'].dt.strftime('%d/%m/%y').fillna("Sin fecha")
+# --- CORRECCIÓN ORDEN Y FORMATO DE FECHAS ---
+# Convertimos a fechas reales para ordenar cronológicamente
+df_fase['Fecha_dt'] = pd.to_datetime(df_fase['Fecha'], errors='coerce')
+df_fase['Hora_dt'] = pd.to_datetime(df_fase['Hora'], format='%H:%M:%S', errors='coerce')
+df_fase = df_fase.sort_values(by=['Fecha_dt', 'Hora_dt'])
 
-df_fase['Hora'] = pd.to_datetime(df_fase['Hora'], format='%H:%M:%S', errors='coerce')
-df_fase['Hora'] = df_fase['Hora'].dt.strftime('%H:%M').fillna("00:00")
+# Formateamos para mostrar al usuario
+df_fase['Fecha'] = df_fase['Fecha_dt'].dt.strftime('%d/%m/%y').fillna("Sin fecha")
+df_fase['Hora'] = df_fase['Hora_dt'].dt.strftime('%H:%M').fillna("00:00")
+df_fase = df_fase.drop(columns=['Fecha_dt', 'Hora_dt'])
 
 usuario = st.text_input("Tu Nombre:")
 
@@ -78,16 +93,9 @@ if st.button("Guardar Predicciones"):
     if not usuario: 
         st.error("Por favor, ingresa tu nombre.")
     else:
-        nuevas = []
-        for _, row in preds.iterrows():
-            # Creamos la fila para la hoja de Apuestas
-            nuevas.append([usuario, f"{row['Local']} vs {row['Visita']}", 
-                           row['Pred_Local'], row['Pred_Visita'], 0])
-        
-        # Añadir filas a la hoja de Apuestas en Google Sheets
         worksheet_apuestas = sh.worksheet('Apuestas')
-        for fila in nuevas:
-            worksheet_apuestas.append_row(fila)
-        
-        st.success(f"¡Predicciones guardadas en la nube para {usuario}!")
+        for _, row in preds.iterrows():
+            worksheet_apuestas.append_row([usuario, f"{row['Local']} vs {row['Visita']}", 
+                                           row['Pred_Local'], row['Pred_Visita'], 0])
+        st.success(f"¡Predicciones guardadas para {usuario}!")
         st.balloons()
