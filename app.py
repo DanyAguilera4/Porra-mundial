@@ -19,7 +19,7 @@ def get_connection():
 client = get_connection()
 sh = client.open_by_key('1-n82WoLSk3b0XE59qIaTrf69R44qAAqu6iJqlDj0RDI')
 
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=10) # TTL corto para que el ranking se refresque rápido
 def load_data(sheet_name):
     return pd.DataFrame(sh.worksheet(sheet_name).get_all_records())
 
@@ -31,21 +31,17 @@ def calcular_puntos(pred_local, pred_visita, real_local, real_visita):
     # 1 pt: Acertar ganador (si no fue exacto)
     pred_g = "L" if pred_local > pred_visita else ("V" if pred_visita > pred_local else "E")
     real_g = "L" if real_local > real_visita else ("V" if real_visita > real_local else "E")
-    if pred_g == real_g:
-        return 1
-    return 0
+    return 1 if pred_g == real_g else 0
 
 # --- INTERFAZ ---
-df_apuestas = load_data('Apuestas')
 fases_disponibles = [w.title for w in sh.worksheets() if w.title != 'Apuestas']
 
 # 1. RANKING
 st.header("🏆 Clasificación General 🏆")
+df_apuestas = load_data('Apuestas')
 if not df_apuestas.empty and 'Puntos' in df_apuestas.columns:
     ranking = df_apuestas.groupby('Usuario')['Puntos'].sum().sort_values(ascending=False).reset_index()
     st.table(ranking)
-else:
-    st.info("No hay puntos registrados aún.")
 
 st.divider()
 
@@ -53,48 +49,54 @@ st.divider()
 with st.expander("⚙️ Zona Administrador: Registrar Resultados"):
     fase_admin = st.selectbox("Fase:", fases_disponibles)
     df_admin = load_data(fase_admin)
-    
     partido_sel = st.selectbox("Partido:", df_admin['Local'] + " vs " + df_admin['Visita'])
     idx = df_admin[df_admin['Local'] + " vs " + df_admin['Visita'] == partido_sel].index[0]
     
     col1, col2 = st.columns(2)
-    r_l = col1.number_input(f"Goles {df_admin.at[idx, 'Local']}", min_value=0, step=1)
-    r_v = col2.number_input(f"Goles {df_admin.at[idx, 'Visita']}", min_value=0, step=1)
+    r_l = col1.number_input("Goles Local", 0, step=1)
+    r_v = col2.number_input("Goles Visita", 0, step=1)
     
     if st.button("Guardar y Recalcular Ranking"):
-        # Guardar resultado real
         ws = sh.worksheet(fase_admin)
         ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Local') + 1, r_l)
         ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Visita') + 1, r_v)
         
-        # Recalcular puntos en la hoja 'Apuestas'
+        # Recalcular puntos de todos los usuarios
         partido_str = f"{df_admin.at[idx, 'Local']} vs {df_admin.at[idx, 'Visita']}"
         for i, row in df_apuestas.iterrows():
             if row['Partido'] == partido_str:
                 df_apuestas.at[i, 'Puntos'] = calcular_puntos(row['Pred_Local'], row['Pred_Visita'], r_l, r_v)
-        
         set_with_dataframe(sh.worksheet('Apuestas'), df_apuestas)
         st.success("¡Ranking actualizado!")
         st.rerun()
 
 # 3. ZONA PREDICCIONES
 st.subheader("📝 Realizar Predicciones")
+
+# LISTA DE USUARIOS (Puedes añadir nombres aquí)
+lista_usuarios = ["Dany", "Daniel", "Maria", "Juan", "Pedro"] 
+usuario = st.selectbox("Selecciona tu nombre:", lista_usuarios)
 fase_user = st.selectbox("Selecciona ronda:", fases_disponibles, key="fase_user")
+
 df_fase = load_data(fase_user)
-usuario = st.text_input("Tu Nombre:")
+apuestas_usuario = df_apuestas[df_apuestas['Usuario'] == usuario]
+partidos_ya_apostados = apuestas_usuario['Partido'].tolist()
 
-df_editor = df_fase[['Local', 'Visita']].copy()
-df_editor['Pred_Local'] = 0
-df_editor['Pred_Visita'] = 0
-preds = st.data_editor(df_editor, hide_index=True)
+# Filtrar: Mostrar solo lo que falta por apostar
+df_pendientes = df_fase[~df_fase.apply(lambda x: f"{x['Local']} vs {x['Visita']}" in partidos_ya_apostados, axis=1)]
 
-if st.button("Guardar Predicciones"):
-    if not usuario:
-        st.error("Ingresa tu nombre.")
-    else:
-        nuevas_filas = []
-        for _, row in preds.iterrows():
-            nuevas_filas.append([usuario, f"{row['Local']} vs {row['Visita']}", row['Pred_Local'], row['Pred_Visita'], 0])
-        sh.worksheet('Apuestas').append_rows(nuevas_filas)
-        st.success("¡Guardado!")
+if df_pendientes.empty:
+    st.info(f"¡{usuario}, ya has completado todos tus partidos en esta fase!")
+else:
+    st.write(f"Partidos pendientes para **{usuario}**: {len(df_pendientes)}")
+    df_editor = df_pendientes[['Local', 'Visita']].copy()
+    df_editor['Pred_Local'] = 0
+    df_editor['Pred_Visita'] = 0
+    preds = st.data_editor(df_editor, hide_index=True)
+
+    if st.button("Guardar Predicciones"):
+        nuevas = [[usuario, f"{row['Local']} vs {row['Visita']}", row['Pred_Local'], row['Pred_Visita'], 0] 
+                  for _, row in preds.iterrows()]
+        sh.worksheet('Apuestas').append_rows(nuevas)
+        st.success("¡Guardado! Tus predicciones han sido registradas.")
         st.rerun()
