@@ -77,6 +77,35 @@ usuario = st.selectbox("Selecciona tu nombre:", lista_usuarios)
 fase_user = st.selectbox("Selecciona ronda:", fases_disponibles, key="fase_user")
 
 df_fase = load_data(fase_user)
+apuestas_usuario = df_apuestas[df_apuestas['Usuario'] == usuario]
+partidos_ya_apostados = apuestas_usuario['Partido'].tolist()
+
+df_pendientes = df_fase[~df_fase.apply(lambda x: f"{x['Local']} vs {x['Visita']}" in partidos_ya_apostados, axis=1)]
+
+if df_pendientes.empty:
+    st.info(f"¡{usuario}, ya has completado todos tus partidos en esta fase!")
+else:
+    st.write(f"Partidos pendientes para **{usuario}**: {len(df_pendientes)}")
+    
+    # Creamos un editor donde los valores empiezan en None en lugar de 0
+    df_editor = df_pendientes[['Local', 'Visita']].copy()
+    df_editor['Pred_Local'] = None 
+    df_editor['Pred_Visita'] = None
+    
+    preds = st.data_editor(df_editor, hide_index=True)
+
+    if st.button("Guardar Predicciones"):
+        # Filtramos solo las filas donde el usuario ha rellenado ambos campos
+        pendientes_de_guardar = preds.dropna()
+        
+        if pendientes_de_guardar.empty:
+            st.warning("Por favor, rellena los resultados antes de guardar.")
+        else:
+            nuevas = [[usuario, f"{row['Local']} vs {row['Visita']}", int(row['Pred_Local']), int(row['Pred_Visita']), 0] 
+                      for _, row in pendientes_de_guardar.iterrows()]
+            sh.worksheet('Apuestas').append_rows(nuevas)
+            st.success(f"¡Guardado! Se registraron {len(nuevas)} predicciones.")
+            st.rerun()
 
 # Aseguramos que df_apuestas tenga la columna 'Usuario' antes de filtrar
 if 'Usuario' in df_apuestas.columns:
