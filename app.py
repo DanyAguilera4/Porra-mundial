@@ -110,7 +110,8 @@ else:
             st.warning("Por favor, rellena resultados antes de guardar.")
         else:
             with st.status("Guardando en la nube...", expanded=True) as status:
-                nuevas = [[usuario, f"{row['Local']} vs {row['Visita']}", int(row['Pred_Local']), int(row['Pred_Visita']), 0] 
+                # CAMBIO AQUÍ: Se añade 'jornada_user' al final de la lista para completar las 6 columnas
+                nuevas = [[usuario, f"{row['Local']} vs {row['Visita']}", int(row['Pred_Local']), int(row['Pred_Visita']), 0, jornada_user] 
                           for _, row in pendientes_de_guardar.iterrows()]
                 sh.worksheet('Apuestas').append_rows(nuevas)
                 st.cache_data.clear()
