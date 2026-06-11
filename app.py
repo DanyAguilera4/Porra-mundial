@@ -29,7 +29,6 @@ def load_data(sheet_name):
             return pd.DataFrame(columns=['Jornada', 'Local', 'Visita', 'Goles_Real_Local', 'Goles_Real_Visita'])
         return pd.DataFrame(data)
     except:
-        # BLINDADO: Si falla la conexión o la hoja no existe, devuelve columnas por defecto para evitar KeyErrors
         if sheet_name == 'Apuestas':
             return pd.DataFrame(columns=['Usuario', 'Partido', 'Pred_Local', 'Pred_Visita', 'Puntos', 'Jornada'])
         return pd.DataFrame(columns=['Jornada', 'Local', 'Visita', 'Goles_Real_Local', 'Goles_Real_Visita'])
@@ -52,7 +51,6 @@ hojas = [w.title for w in sh.worksheets() if w.title != 'Apuestas']
 st.header("🏆 Clasificación General 🏆")
 df_apuestas = load_data('Apuestas')
 if not df_apuestas.empty and 'Puntos' in df_apuestas.columns:
-    # BLINDADO: Convierte a numérico de forma segura ignorando textos extraños o celdas vacías vacías
     df_apuestas['Puntos'] = pd.to_numeric(df_apuestas['Puntos'], errors='coerce').fillna(0)
     ranking = df_apuestas.groupby('Usuario')['Puntos'].sum().sort_values(ascending=False).reset_index()
     st.table(ranking)
@@ -60,18 +58,16 @@ if not df_apuestas.empty and 'Puntos' in df_apuestas.columns:
 st.divider()
 
 # 2. ZONA ADMINISTRADOR
-with st.expander("⚙️ Zona Administrador: Registrar Resultados"):
+with st.expander("⚙️ Zona Admin: Registrar Resultados"):
     fase_admin = st.selectbox("Selecciona Fase:", hojas, key="admin_fase")
     df_admin = load_data(fase_admin)
     
-    # BLINDADO: Validar que la hoja de la fase tiene datos y la estructura correcta antes de operar
     if not df_admin.empty and 'Jornada' in df_admin.columns and 'Local' in df_admin.columns and 'Visita' in df_admin.columns:
         jornada_admin = st.selectbox("Selecciona Jornada:", sorted(df_admin['Jornada'].unique()), key="admin_jor")
         df_admin_filt = df_admin[df_admin['Jornada'] == jornada_admin]
         
         opciones_partidos = df_admin_filt['Local'] + " vs " + df_admin_filt['Visita']
         
-        # BLINDADO: Evita romper la app si la jornada elegida no tiene partidos listados
         if not opciones_partidos.empty:
             partido_sel = st.selectbox("Partido:", opciones_partidos)
             filtro_idx = df_admin_filt[df_admin_filt['Local'] + " vs " + df_admin_filt['Visita'] == partido_sel].index
@@ -84,17 +80,31 @@ with st.expander("⚙️ Zona Administrador: Registrar Resultados"):
                 r_v = col2.number_input("Goles Visita", 0, step=1)
                 
                 if st.button("Guardar y Recalcular Ranking"):
+                    # 1. Actualizar resultado real en la hoja de la fase
                     ws = sh.worksheet(fase_admin)
                     ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Local') + 1, r_l)
                     ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Visita') + 1, r_v)
                     
                     partido_str = f"{df_admin.at[idx, 'Local']} vs {df_admin.at[idx, 'Visita']}"
-                    for i, row in df_apuestas.iterrows():
-                        if row['Partido'] == partido_str:
-                            df_apuestas.at[i, 'Puntos'] = calcular_puntos(row['Pred_Local'], row['Pred_Visita'], r_l, r_v)
-                    set_with_dataframe(sh.worksheet('Apuestas'), df_apuestas)
+                    
+                    # 2. SOLUCIÓN DEFINITIVA DE CONCURRENCIA: Leer 'Apuestas' en tiempo real
+                    ws_apuestas = sh.worksheet('Apuestas')
+                    datos_frescos = ws_apuestas.get_all_records()
+                    
+                    if datos_frescos:
+                        df_fresco = pd.DataFrame(datos_frescos)
+                        if 'Partido' in df_fresco.columns and 'Puntos' in df_fresco.columns:
+                            col_puntos_num = list(df_fresco.columns).index('Puntos') + 1
+                            
+                            # 3. Modificar únicamente las celdas necesarias sin tocar el resto de filas
+                            for i, row in df_fresco.iterrows():
+                                if str(row['Partido']).strip().lower() == partido_str.strip().lower():
+                                    nuevos_puntos = calcular_puntos(row['Pred_Local'], row['Pred_Visita'], r_l, r_v)
+                                    # i + 2 mapea perfectamente el índice de Pandas con la fila de Google Sheets (fila 1 es cabecera)
+                                    ws_apuestas.update_cell(i + 2, col_puntos_num, nuevos_puntos)
+                    
                     st.cache_data.clear()
-                    st.success("¡Ranking actualizado!")
+                    st.success("¡Resultados y puntos asignados con éxito sin alterar otras apuestas!")
                     st.rerun()
             else:
                 st.error("No se pudo encontrar el índice del partido seleccionado.")
@@ -110,9 +120,8 @@ usuario = st.selectbox("Selecciona tu nombre:", lista_usuarios)
 fase_user = st.selectbox("Selecciona Fase:", hojas, key="user_fase")
 df_fase = load_data(fase_user)
 
-# BLINDADO: Validar existencia de la columna Jornada en la fase del usuario
 if not df_fase.empty and 'Jornada' in df_fase.columns:
-    jornada_user = st.selectbox("Selecciona Jornada:", sorted(df_fase['Jornada'].unique()), key="user_jor")
+    jornada_user = st.selectbox("Selecciona Jornada:", sorted(df_fase['Jornase'].unique() if 'Jornase' in df_fase.columns else df_fase['Jornada'].unique()), key="user_jor")
     df_fase_filt = df_fase[df_fase['Jornada'] == jornada_user]
 
     if 'Usuario' in df_apuestas.columns and not df_apuestas.empty:
@@ -130,7 +139,6 @@ if not df_fase.empty and 'Jornada' in df_fase.columns:
         df_editor['Pred_Local'] = None
         df_editor['Pred_Visita'] = None
         
-        # BLINDADO: Configuración estricta del editor para impedir que escriban texto, decimales o números negativos
         preds = st.data_editor(
             df_editor, 
             hide_index=True,
@@ -148,7 +156,6 @@ if not df_fase.empty and 'Jornada' in df_fase.columns:
                 st.warning("Por favor, rellena resultados antes de guardar.")
             else:
                 with st.status("Guardando en la nube...", expanded=True) as status:
-                    # Incluye 'jornada_user' para rellenar las 6 columnas completas de la hoja
                     nuevas = [[usuario, f"{row['Local']} vs {row['Visita']}", int(row['Pred_Local']), int(row['Pred_Visita']), 0, jornada_user] 
                               for _, row in pendientes_de_guardar.iterrows()]
                     sh.worksheet('Apuestas').append_rows(nuevas)
