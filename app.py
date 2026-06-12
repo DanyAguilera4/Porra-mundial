@@ -15,10 +15,17 @@ def get_connection():
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     return gspread.authorize(creds)
 
-client = get_connection()
-# Tip de experto: saca el ID a los secrets o a una variable clara arriba
+# OPTIMIZACIÓN: Función con caché para abrir el documento evitando bloqueos de cuota (Rate Limits)
+@st.cache_resource
+def get_spreadsheet(spreadsheet_id):
+    client = get_connection()
+    return client.open_by_key(spreadsheet_id)
+
+# ID de tu documento de Google Sheets
 SPREADSHEET_ID = '1-n82WoLSk3b0XE59qIaTrf69R44qAAqu6iJqlDj0RDI'
-sh = client.open_by_key(SPREADSHEET_ID)
+
+# Cargamos el archivo usando la nueva función optimizada
+sh = get_spreadsheet(SPREADSHEET_ID)
 
 @st.cache_data(ttl=10)
 def load_data(sheet_name):
@@ -30,7 +37,6 @@ def load_data(sheet_name):
             return pd.DataFrame(columns=['Jornada', 'Local', 'Visita', 'Goles_Real_Local', 'Goles_Real_Visita'])
         return pd.DataFrame(data)
     except Exception as e:
-        # Al menos te avisa en consola si algo va mal con los datos
         print(f"Error cargando {sheet_name}: {e}")
         if sheet_name == 'Apuestas':
             return pd.DataFrame(columns=['Usuario', 'Partido', 'Pred_Local', 'Pred_Visita', 'Puntos', 'Jornada'])
@@ -57,7 +63,6 @@ df_apuestas = load_data('Apuestas')
 if not df_apuestas.empty and 'Puntos' in df_apuestas.columns:
     df_apuestas['Puntos'] = pd.to_numeric(df_apuestas['Puntos'], errors='coerce').fillna(0)
     ranking = df_apuestas.groupby('Usuario')['Puntos'].sum().sort_values(ascending=False).reset_index()
-    # Le damos un toque más pro al índice visual
     ranking.index = ranking.index + 1
     st.table(ranking)
 
@@ -92,7 +97,7 @@ with st.expander("⚙️ Zona Admin: Registrar Resultados"):
                     
                     partido_str = f"{df_admin.at[idx, 'Local']} vs {df_admin.at[idx, 'Visita']}"
                     
-                    # ACTUALIZACIÓN EN BATCH (Adiós bloqueos de API de Google)
+                    # ACTUALIZACIÓN EN BATCH
                     ws_apuestas = sh.worksheet('Apuestas')
                     datos_frescos = ws_apuestas.get_all_records()
                     
@@ -112,7 +117,6 @@ with st.expander("⚙️ Zona Admin: Registrar Resultados"):
                                     })
                             
                             if updates:
-                                # Se ejecutan todos los updates en una sola llamada de red
                                 ws_apuestas.batch_update(updates)
                     
                     st.cache_data.clear()
@@ -139,7 +143,6 @@ fase_user = st.selectbox("Selecciona Fase:", hojas, key="user_fase")
 df_fase = load_data(fase_user)
 
 if not df_fase.empty and 'Jornada' in df_fase.columns:
-    # BUGFIX: Eliminada la errata de 'Jornase'
     jornada_user = st.selectbox("Selecciona Jornada:", sorted(df_fase['Jornada'].unique()), key="user_jor")
     df_fase_filt = df_fase[df_fase['Jornada'] == jornada_user]
 
