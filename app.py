@@ -28,7 +28,7 @@ SPREADSHEET_ID = '1-n82WoLSk3b0XE59qIaTrf69R44qAAqu6iJqlDj0RDI'
 @st.cache_data(ttl=300)
 def load_sheet_names(spreadsheet_id):
     spreadsheet = get_spreadsheet(spreadsheet_id)
-    return [w.title for w in spreadsheet.worksheets() if w.title not in ['Apuestas', 'Usuarios']]
+    return [w.title for w in spreadsheet.worksheets() if w.title not in ['Apuestas', 'Usuarios', 'Clasificacion']]
 
 hojas = load_sheet_names(SPREADSHEET_ID)
 
