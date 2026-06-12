@@ -69,65 +69,97 @@ if not df_apuestas.empty and 'Puntos' in df_apuestas.columns:
 st.divider()
 
 # 2. ZONA ADMINISTRADOR
-with st.expander("⚙️ Zona Admin: Registrar Resultados"):
-    fase_admin = st.selectbox("Selecciona Fase:", hojas, key="admin_fase")
-    df_admin = load_data(fase_admin)
+with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
+    # CAMBIO 1: Sistema de contraseña
+    admin_pass = st.text_input("Contraseña de administrador:", type="password")
     
-    if not df_admin.empty and all(col in df_admin.columns for col in ['Jornada', 'Local', 'Visita']):
-        jornada_admin = st.selectbox("Selecciona Jornada:", sorted(df_admin['Jornada'].unique()), key="admin_jor")
-        df_admin_filt = df_admin[df_admin['Jornada'] == jornada_admin]
+    if admin_pass == "Adm1n1str@tor":  # Cambia "admin123" por la contraseña que quieras usar
+        st.success("Acceso concedido")
+        st.markdown("### 📝 Registrar Resultados de Partidos")
         
-        opciones_partidos = df_admin_filt['Local'] + " vs " + df_admin_filt['Visita']
+        fase_admin = st.selectbox("Selecciona Fase:", hojas, key="admin_fase")
+        df_admin = load_data(fase_admin)
         
-        if not opciones_partidos.empty:
-            partido_sel = st.selectbox("Partido:", opciones_partidos)
-            filtro_idx = df_admin_filt[df_admin_filt['Local'] + " vs " + df_admin_filt['Visita'] == partido_sel].index
+        if not df_admin.empty and all(col in df_admin.columns for col in ['Jornada', 'Local', 'Visita']):
+            jornada_admin = st.selectbox("Selecciona Jornada:", sorted(df_admin['Jornada'].unique()), key="admin_jor")
+            df_admin_filt = df_admin[df_admin['Jornada'] == jornada_admin]
             
-            if len(filtro_idx) > 0:
-                idx = filtro_idx[0]
+            opciones_partidos = df_admin_filt['Local'] + " vs " + df_admin_filt['Visita']
+            
+            if not opciones_partidos.empty:
+                partido_sel = st.selectbox("Partido:", opciones_partidos)
+                filtro_idx = df_admin_filt[df_admin_filt['Local'] + " vs " + df_admin_filt['Visita'] == partido_sel].index
                 
-                col1, col2 = st.columns(2)
-                r_l = col1.number_input("Goles Local", 0, step=1)
-                r_v = col2.number_input("Goles Visita", 0, step=1)
-                
-                if st.button("Guardar y Recalcular Ranking"):
-                    ws = sh.worksheet(fase_admin)
-                    ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Local') + 1, r_l)
-                    ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Visita') + 1, r_v)
+                if len(filtro_idx) > 0:
+                    idx = filtro_idx[0]
                     
-                    partido_str = f"{df_admin.at[idx, 'Local']} vs {df_admin.at[idx, 'Visita']}"
+                    col1, col2 = st.columns(2)
+                    r_l = col1.number_input("Goles Local", 0, step=1)
+                    r_v = col2.number_input("Goles Visita", 0, step=1)
                     
-                    # ACTUALIZACIÓN EN BATCH
-                    ws_apuestas = sh.worksheet('Apuestas')
-                    datos_frescos = ws_apuestas.get_all_records()
-                    
-                    if datos_frescos:
-                        df_fresco = pd.DataFrame(datos_frescos)
-                        if 'Partido' in df_fresco.columns and 'Puntos' in df_fresco.columns:
-                            col_puntos_letra = gspread.utils.rowcol_to_a1(1, list(df_fresco.columns).index('Puntos') + 1)[0]
-                            
-                            updates = []
-                            for i, row in df_fresco.iterrows():
-                                if str(row['Partido']).strip().lower() == partido_str.strip().lower():
-                                    nuevos_puntos = calcular_puntos(row['Pred_Local'], row['Pred_Visita'], r_l, r_v)
-                                    fila_sheet = i + 2
-                                    updates.append({
-                                        'range': f"{col_puntos_letra}{fila_sheet}",
-                                        'values': [[nuevos_puntos]]
-                                    })
-                            
-                            if updates:
-                                ws_apuestas.batch_update(updates)
-                    
-                    st.cache_data.clear()
-                    st.success("¡Resultados y puntos asignados de golpe!")
-                    st.rerun()
+                    if st.button("Guardar y Recalcular Ranking"):
+                        ws = sh.worksheet(fase_admin)
+                        ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Local') + 1, r_l)
+                        ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Visita') + 1, r_v)
+                        
+                        partido_str = f"{df_admin.at[idx, 'Local']} vs {df_admin.at[idx, 'Visita']}"
+                        
+                        # ACTUALIZACIÓN EN BATCH
+                        ws_apuestas = sh.worksheet('Apuestas')
+                        datos_frescos = ws_apuestas.get_all_records()
+                        
+                        if datos_frescos:
+                            df_fresco = pd.DataFrame(datos_frescos)
+                            if 'Partido' in df_fresco.columns and 'Puntos' in df_fresco.columns:
+                                col_puntos_letra = gspread.utils.rowcol_to_a1(1, list(df_fresco.columns).index('Puntos') + 1)[0]
+                                
+                                updates = []
+                                for i, row in df_fresco.iterrows():
+                                    if str(row['Partido']).strip().lower() == partido_str.strip().lower():
+                                        nuevos_puntos = calcular_puntos(row['Pred_Local'], row['Pred_Visita'], r_l, r_v)
+                                        fila_sheet = i + 2
+                                        updates.append({
+                                            'range': f"{col_puntos_letra}{fila_sheet}",
+                                            'values': [[nuevos_puntos]]
+                                        })
+                                
+                                if updates:
+                                    ws_apuestas.batch_update(updates)
+                        
+                        st.cache_data.clear()
+                        st.success("¡Resultados y puntos asignados de golpe!")
+                        st.rerun()
+                else:
+                    st.error("No se pudo encontrar el índice del partido seleccionado.")
             else:
-                st.error("No se pudo encontrar el índice del partido seleccionado.")
+                st.warning("No hay partidos registrados para la jornada seleccionada.")
         else:
-            st.warning("No hay partidos registrados para la jornada seleccionada.")
-    else:
-        st.warning("La hoja está vacía o le faltan columnas básicas.")
+            st.warning("La hoja está vacía o le faltan columnas básicas.")
+            
+        st.divider()
+        
+        # CAMBIO 2: Dar/Quitar puntos manualmente
+        st.markdown("### ⚖️ Ajuste Manual de Puntos")
+        st.write("Usa esta zona para dar puntos extra (bonus) o quitar puntos (penalizaciones).")
+        if not df_apuestas.empty and 'Usuario' in df_apuestas.columns:
+            usuario_ajuste = st.selectbox("Selecciona al usuario:", df_apuestas['Usuario'].unique())
+            col_pts, col_motivo = st.columns([1, 2])
+            puntos_ajuste = col_pts.number_input("Puntos (usa negativos para restar):", value=0, step=1)
+            motivo_ajuste = col_motivo.text_input("Motivo (ej: Bonus por acertar el campeón):")
+            
+            if st.button("Aplicar Ajuste de Puntos"):
+                if puntos_ajuste != 0:
+                    ws_apuestas = sh.worksheet('Apuestas')
+                    # Añadimos una fila simulando una apuesta pero que solo suma puntos a ese usuario
+                    ws_apuestas.append_row([usuario_ajuste, f"AJUSTE ADMIN: {motivo_ajuste}", 0, 0, puntos_ajuste, "AJUSTE"])
+                    st.cache_data.clear()
+                    st.success(f"Se ha aplicado el ajuste de {puntos_ajuste} puntos a {usuario_ajuste}.")
+                    st.rerun()
+                else:
+                    st.warning("El ajuste de puntos no puede ser 0.")
+                    
+    elif admin_pass != "":
+        st.error("Contraseña incorrecta.")
 
 # 3. ZONA PREDICCIONES
 st.subheader("📝 Realizar Predicciones")
