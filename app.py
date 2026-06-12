@@ -15,7 +15,7 @@ def get_connection():
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     return gspread.authorize(creds)
 
-# OPTIMIZACIÓN: Función con caché para abrir el documento evitando bloqueos de cuota
+# Función con caché para abrir el documento evitando bloqueos de cuota
 @st.cache_resource
 def get_spreadsheet(spreadsheet_id):
     client = get_connection()
@@ -23,9 +23,6 @@ def get_spreadsheet(spreadsheet_id):
 
 # ID de tu documento de Google Sheets
 SPREADSHEET_ID = '1-n82WoLSk3b0XE59qIaTrf69R44qAAqu6iJqlDj0RDI'
-
-# Cargamos el archivo usando la nueva función optimizada
-sh = get_spreadsheet(SPREADSHEET_ID)
 
 # OPTIMIZACIÓN DE CUOTA CRÍTICA: Almacenar nombres de hojas en caché por 5 minutos
 @st.cache_data(ttl=300)
@@ -36,16 +33,18 @@ def load_sheet_names(spreadsheet_id):
 hojas = load_sheet_names(SPREADSHEET_ID)
 
 @st.cache_data(ttl=10)
-def load_data(sheet_name):
+def load_data(spreadsheet_id, sheet_name):
     try:
-        data = sh.worksheet(sheet_name).get_all_records()
+        # Corregido: Obtenemos la hoja de manera local para evitar depender de globales inestables
+        spreadsheet = get_spreadsheet(spreadsheet_id)
+        data = spreadsheet.worksheet(sheet_name).get_all_records()
         if not data: 
             if sheet_name == 'Apuestas':
                 return pd.DataFrame(columns=['Usuario', 'Partido', 'Pred_Local', 'Pred_Visita', 'Puntos', 'Jornada'])
             return pd.DataFrame(columns=['Jornada', 'Local', 'Visita', 'Goles_Real_Local', 'Goles_Real_Visita'])
         return pd.DataFrame(data)
     except Exception as e:
-        print(f"Error cargando {sheet_name}: {e}")
+        st.error(f"Error cargando la hoja '{sheet_name}': {e}")  # Cambiado print por st.error para visibilidad
         if sheet_name == 'Apuestas':
             return pd.DataFrame(columns=['Usuario', 'Partido', 'Pred_Local', 'Pred_Visita', 'Puntos', 'Jornada'])
         return pd.DataFrame(columns=['Jornada', 'Local', 'Visita', 'Goles_Real_Local', 'Goles_Real_Visita'])
@@ -66,7 +65,7 @@ def calcular_puntos(pred_local, pred_visita, real_local, real_visita):
 
 # 1. RANKING (Público para todos)
 st.header("🏆 Clasificación General 🏆")
-df_apuestas = load_data('Apuestas')
+df_apuestas = load_data(SPREADSHEET_ID, 'Apuestas')
 if not df_apuestas.empty and 'Puntos' in df_apuestas.columns:
     df_apuestas['Puntos'] = pd.to_numeric(df_apuestas['Puntos'], errors='coerce').fillna(0)
     ranking = df_apuestas.groupby('Usuario')['Puntos'].sum().sort_values(ascending=False).reset_index()
@@ -79,7 +78,10 @@ st.divider()
 with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
     admin_pass = st.text_input("Contraseña de administrador:", type="password")
     
-    if admin_pass == "Adm1n1str@tor":
+    # RECOMENDACIÓN: Cambiar por st.secrets["admin_password"] en producción
+    ADMIN_PASSWORD = st.secrets.get("admin_password", "Adm1n1str@tor")
+    
+    if admin_pass == ADMIN_PASSWORD:
         st.success("Acceso concedido")
         
         # --- MENSAJE DE ÉXITO PERSISTENTE ---
@@ -103,6 +105,7 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
                 st.error("Por favor, introduce el nombre de ambos equipos.")
             else:
                 try:
+                    sh = get_spreadsheet(SPREADSHEET_ID)
                     ws_fase = sh.worksheet(fase_nueva)
                     headers = ws_fase.row_values(1)
                     
@@ -140,7 +143,7 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
         st.markdown("### 📝 Registrar Resultados de Partidos")
         
         fase_admin = st.selectbox("Selecciona Fase:", hojas, key="admin_fase")
-        df_admin = load_data(fase_admin)
+        df_admin = load_data(SPREADSHEET_ID, fase_admin)
         
         col_jor_admin = 'Jornada' if 'Jornada' in df_admin.columns else ('ID' if 'ID' in df_admin.columns else None)
         
@@ -151,8 +154,8 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
             opciones_partidos = df_admin_filt['Local'] + " vs " + df_admin_filt['Visita']
             
             if not opciones_partidos.empty:
-                partio_sel = st.selectbox("Partido:", opciones_partidos)
-                filtro_idx = df_admin_filt[df_admin_filt['Local'] + " vs " + df_admin_filt['Visita'] == partio_sel].index
+                partido_sel = st.selectbox("Partido:", opciones_partidos) # Corregido typo en variable
+                filtro_idx = df_admin_filt[df_admin_filt['Local'] + " vs " + df_admin_filt['Visita'] == partido_sel].index
                 
                 if len(filtro_idx) > 0:
                     idx = filtro_idx[0]
@@ -162,6 +165,7 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
                     r_v = col2.number_input("Goles Visita", 0, step=1)
                     
                     if st.button("Guardar y Recalcular Ranking"):
+                        sh = get_spreadsheet(SPREADSHEET_ID)
                         ws = sh.worksheet(fase_admin)
                         ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Local') + 1, r_l)
                         ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Visita') + 1, r_v)
@@ -212,6 +216,7 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
             
             if st.button("Aplicar Ajuste de Puntos"):
                 if puntos_ajuste != 0:
+                    sh = get_spreadsheet(SPREADSHEET_ID)
                     ws_apuestas = sh.worksheet('Apuestas')
                     ws_apuestas.append_row([usuario_ajuste, f"AJUSTE ADMIN: {motivo_ajuste}", 0, 0, puntos_ajuste, "AJUSTE"])
                     st.cache_data.clear()
@@ -227,11 +232,10 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
 st.divider()
 st.subheader("🔐 Acceso Privado de Jugadores")
 
-# Inicializar variable de estado para controlar la sesión
 if 'usuario_autenticado' not in st.session_state:
     st.session_state['usuario_autenticado'] = None
 
-df_usuarios = load_data('Usuarios')
+df_usuarios = load_data(SPREADSHEET_ID, 'Usuarios')
 
 if not df_usuarios.empty and 'Usuario' in df_usuarios.columns and 'Password' in df_usuarios.columns:
     
@@ -270,7 +274,7 @@ if not df_usuarios.empty and 'Usuario' in df_usuarios.columns and 'Password' in 
         st.subheader("📝 Realizar Predicciones")
 
         fase_user = st.selectbox("Selecciona Fase:", hojas, key="user_fase")
-        df_fase = load_data(fase_user)
+        df_fase = load_data(SPREADSHEET_ID, fase_user)
 
         col_jor_user = 'Jornada' if 'Jornada' in df_fase.columns else ('ID' if 'ID' in df_fase.columns else None)
 
@@ -290,8 +294,10 @@ if not df_usuarios.empty and 'Usuario' in df_usuarios.columns and 'Password' in 
             else:
                 st.write(f"Partidos pendientes para **{usuario}** en {jornada_user}: {len(df_pendientes)}")
                 df_editor = df_pendientes[['Local', 'Visita']].copy()
-                df_editor['Pred_Local'] = None
-                df_editor['Pred_Visita'] = None
+                
+                # Corregido: Definimos explícitamente el tipo numérico entero para evitar problemas en st.data_editor
+                df_editor['Pred_Local'] = pd.Series(dtype='Int64')
+                df_editor['Pred_Visita'] = pd.Series(dtype='Int64')
                 
                 preds = st.data_editor(
                     df_editor, 
@@ -312,6 +318,8 @@ if not df_usuarios.empty and 'Usuario' in df_usuarios.columns and 'Password' in 
                         with st.status("Guardando en la nube...", expanded=True) as status:
                             nuevas = [[usuario, f"{row['Local']} vs {row['Visita']}", int(row['Pred_Local']), int(row['Pred_Visita']), 0, jornada_user] 
                                       for _, row in pendientes_de_guardar.iterrows()]
+                            
+                            sh = get_spreadsheet(SPREADSHEET_ID)
                             sh.worksheet('Apuestas').append_rows(nuevas)
                             st.cache_data.clear()
                             status.update(label="¡Predicciones guardadas con éxito!", state="complete")
