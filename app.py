@@ -284,3 +284,35 @@ if not df_fase.empty and col_jor_user:
                 st.rerun()
 else:
     st.warning("No hay jornadas configuradas para la fase seleccionada.")
+
+    # ==========================================
+# 4. HISTORIAL DE PREDICCIONES (SOLO VISUAL)
+# ==========================================
+st.divider()
+st.subheader(f"📊 Historial de Predicciones de {usuario}")
+
+if not df_apuestas.empty:
+    # 1. Filtramos las apuestas del usuario seleccionado
+    mis_apuestas = df_apuestas[df_apuestas['Usuario'] == usuario].copy()
+    
+    if not mis_apuestas.empty:
+        # 2. Seleccionamos y ordenamos las columnas para que quede estético
+        # Cambiamos el orden para que la Jornada vaya primero
+        mis_apuestas_ver = mis_apuestas[['Jornada', 'Partido', 'Pred_Local', 'Pred_Visita', 'Puntos']]
+        
+        # 3. Renombramos las columnas para que se vea más limpio en la interfaz
+        mis_apuestas_ver.columns = ['Jornada/Ronda', 'Partido', 'Pred. Local', 'Pred. Visitante', 'Puntos Obtenidos']
+        
+        # 4. Lo mostramos en un componente interactivo pero de SOLO LECTURA
+        st.dataframe(
+            mis_apuestas_ver, 
+            use_container_width=True, 
+            hide_index=True
+        )
+        
+        # Opcional: Un pequeño resumen de sus partidos apostados
+        st.caption(f"Has realizado un total de {len(mis_apuestas_ver)} predicciones.")
+    else:
+        st.info(f"Aún no tienes predicciones registradas, ¡sé el primero en apostar, {usuario}!")
+else:
+    st.warning("No se encontraron registros en la base de datos de Apuestas.")
