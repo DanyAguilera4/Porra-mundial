@@ -83,7 +83,7 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
         fase_nueva = st.selectbox("Selecciona la Fase para añadir el partido:", hojas, key="add_fase")
         
         col_jor, col_loc, col_vis = st.columns(3)
-        jornada_nueva = col_jor.text_input("Jornada/Ronda (Ej: 16avos, Octavos 1):", value="16avos")
+        jornada_nueva = col_jor.text_input("Jornada/Ronda (Ej: 16avos, Octavos 1):", value="")
         equipo_local = col_loc.text_input("Equipo Local:")
         equipo_visita = col_vis.text_input("Equipo Visitante:")
         
