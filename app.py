@@ -75,6 +75,36 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
     
     if admin_pass == "Adm1n1str@tor":  # Cambia "admin123" por la contraseña que quieras usar
         st.success("Acceso concedido")
+        
+        # --- NUEVA FUNCIÓN: AÑADIR PARTIDOS MANUALMENTE ---
+        st.markdown("### 🆕 Añadir Nuevos Partidos Manualmente")
+        st.write("Usa esta sección para añadir partidos de eliminación directa a medida que se definan.")
+        
+        fase_nueva = st.selectbox("Selecciona la Fase para añadir el partido:", hojas, key="add_fase")
+        
+        col_jor, col_loc, col_vis = st.columns(3)
+        jornada_nueva = col_jor.text_input("Jornada/Ronda (Ej: 16avos, Octavos 1):", value="16avos")
+        equipo_local = col_loc.text_input("Equipo Local:")
+        equipo_visita = col_vis.text_input("Equipo Visitante:")
+        
+        if st.button("➕ Insertar Partido"):
+            if equipo_local.strip() == "" or equipo_visita.strip() == "":
+                st.error("Por favor, introduce el nombre de ambos equipos.")
+            else:
+                try:
+                    ws_fase = sh.worksheet(fase_nueva)
+                    # Insertamos la nueva fila: Jornada, Local, Visita, Goles_Real_Local, Goles_Real_Visita
+                    # Dejamos los goles vacíos ("") para que el admin los rellene después en el registrador de resultados
+                    ws_fase.append_row([jornada_nueva.strip(), equipo_local.strip(), equipo_visita.strip(), "", ""])
+                    st.cache_data.clear()
+                    st.success(f"¡Partido '{equipo_local} vs {equipo_visita}' añadido correctamente a la fase {fase_nueva}!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al guardar el partido: {e}")
+                    
+        st.divider()
+        
+        # --- REGISTRAR RESULTADOS ---
         st.markdown("### 📝 Registrar Resultados de Partidos")
         
         fase_admin = st.selectbox("Selecciona Fase:", hojas, key="admin_fase")
@@ -87,8 +117,8 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
             opciones_partidos = df_admin_filt['Local'] + " vs " + df_admin_filt['Visita']
             
             if not opciones_partidos.empty:
-                partido_sel = st.selectbox("Partido:", opciones_partidos)
-                filtro_idx = df_admin_filt[df_admin_filt['Local'] + " vs " + df_admin_filt['Visita'] == partido_sel].index
+                partio_sel = st.selectbox("Partido:", opciones_partidos)
+                filtro_idx = df_admin_filt[df_admin_filt['Local'] + " vs " + df_admin_filt['Visita'] == partio_sel].index
                 
                 if len(filtro_idx) > 0:
                     idx = filtro_idx[0]
