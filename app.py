@@ -296,21 +296,33 @@ if not df_apuestas.empty:
     mis_apuestas = df_apuestas[df_apuestas['Usuario'] == usuario].copy()
     
     if not mis_apuestas.empty:
-        # 2. Seleccionamos y ordenamos las columnas para que quede estético
-        # Cambiamos el orden para que la Jornada vaya primero
-        mis_apuestas_ver = mis_apuestas[['Jornada', 'Partido', 'Pred_Local', 'Pred_Visita', 'Puntos']]
+        # --- SOLUCIÓN AL KEYERROR ---
+        # Definimos las columnas ideales y cómo queremos que se muestren en la app
+        mapeo_columnas = {
+            'Jornada': 'Jornada/Ronda',
+            'Partido': 'Partido',
+            'Pred_Local': 'Pred. Local',
+            'Pred_Visita': 'Pred. Visitante',
+            'Puntos': 'Puntos Obtenidos'
+        }
         
-        # 3. Renombramos las columnas para que se vea más limpio en la interfaz
-        mis_apuestas_ver.columns = ['Jornada/Ronda', 'Partido', 'Pred. Local', 'Pred. Visitante', 'Puntos Obtenidos']
+        # Filtramos de forma segura: solo agarramos las columnas que DE VERDAD existen en tu DataFrame
+        columnas_validas = [col for col in mapeo_columnas.keys() if col in mis_apuestas.columns]
         
-        # 4. Lo mostramos en un componente interactivo pero de SOLO LECTURA
+        # Extraemos solo lo que existe
+        mis_apuestas_ver = mis_apuestas[columnas_validas].copy()
+        
+        # Renombramos solo las columnas que se lograron extraer
+        mis_apuestas_ver.rename(columns=mapeo_columnas, inplace=True)
+        # -----------------------------
+        
+        # 4. Lo mostramos en un componente de SOLO LECTURA
         st.dataframe(
             mis_apuestas_ver, 
             use_container_width=True, 
             hide_index=True
         )
         
-        # Opcional: Un pequeño resumen de sus partidos apostados
         st.caption(f"Has realizado un total de {len(mis_apuestas_ver)} predicciones.")
     else:
         st.info(f"Aún no tienes predicciones registradas, ¡sé el primero en apostar, {usuario}!")
