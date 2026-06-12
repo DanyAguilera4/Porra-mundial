@@ -27,6 +27,14 @@ SPREADSHEET_ID = '1-n82WoLSk3b0XE59qIaTrf69R44qAAqu6iJqlDj0RDI'
 # Cargamos el archivo usando la nueva función optimizada
 sh = get_spreadsheet(SPREADSHEET_ID)
 
+# OPTIMIZACIÓN DE CUOTA CRÍTICA: Almacenar nombres de hojas en caché por 5 minutos
+@st.cache_data(ttl=300)
+def load_sheet_names(spreadsheet_id):
+    spreadsheet = get_spreadsheet(spreadsheet_id)
+    return [w.title for w in spreadsheet.worksheets() if w.title not in ['Apuestas', 'Usuarios']]
+
+hojas = load_sheet_names(SPREADSHEET_ID)
+
 @st.cache_data(ttl=10)
 def load_data(sheet_name):
     try:
@@ -55,9 +63,8 @@ def calcular_puntos(pred_local, pred_visita, real_local, real_visita):
         return 0
 
 # --- INTERFAZ ---
-hojas = [w.title for w in sh.worksheets() if w.title not in ['Apuestas', 'Usuarios']]
 
-# 1. RANKING
+# 1. RANKING (Público para todos)
 st.header("🏆 Clasificación General 🏆")
 df_apuestas = load_data('Apuestas')
 if not df_apuestas.empty and 'Puntos' in df_apuestas.columns:
@@ -78,9 +85,9 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
         # --- MENSAJE DE ÉXITO PERSISTENTE ---
         if 'exito_admin' in st.session_state:
             st.success(st.session_state['exito_admin'])
-            del st.session_state['exito_admin']  # Lo borramos para que no salga siempre
+            del st.session_state['exito_admin']
             
-        # --- NUEVA FUNCIÓN: AÑADIR PARTIDOS MANUALMENTE ---
+        # --- AÑADIR PARTIDOS MANUALMENTE ---
         st.markdown("### 🆕 Añadir Nuevos Partidos Manualmente")
         st.write("Usa esta sección para añadir partidos de eliminación directa a medida que se definan.")
         
@@ -97,18 +104,14 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
             else:
                 try:
                     ws_fase = sh.worksheet(fase_nueva)
-                    # SOLUCIÓN COLUMNAS NATURALES: Leemos las cabeceras reales de la hoja
                     headers = ws_fase.row_values(1)
                     
                     if not headers:
-                        # Fallback por si la hoja está en blanco
                         headers = ['ID', 'Partido', 'Local', 'Visita', 'Goles_Real_Local', 'Goles_Real_Visita']
                         ws_fase.append_row(headers)
                         
-                    # Creamos una fila vacía con la misma longitud que las cabeceras
                     nueva_fila = [""] * len(headers)
                     
-                    # Asignamos dinámicamente según el nombre de la columna en Google Sheets
                     if "Jornada" in headers: 
                         nueva_fila[headers.index("Jornada")] = jornada_nueva.strip()
                     elif "ID" in headers: 
@@ -123,11 +126,9 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
                     if "Visita" in headers: 
                         nueva_fila[headers.index("Visita")] = equipo_visita.strip()
 
-                    # Insertamos la fila perfecta
                     ws_fase.append_row(nueva_fila)
                     st.cache_data.clear()
                     
-                    # SOLUCIÓN BARRA NOTIFICACIÓN: Guardamos el estado para que se vea tras recargar
                     st.session_state['exito_admin'] = f"✅ ¡Partido '{equipo_local.strip()} vs {equipo_visita.strip()}' insertado correctamente en {fase_nueva}!"
                     st.rerun()
                 except Exception as e:
@@ -141,7 +142,6 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
         fase_admin = st.selectbox("Selecciona Fase:", hojas, key="admin_fase")
         df_admin = load_data(fase_admin)
         
-        # Actualizado para que tolere "ID" en lugar de "Jornada" si cambiaste la columna
         col_jor_admin = 'Jornada' if 'Jornada' in df_admin.columns else ('ID' if 'ID' in df_admin.columns else None)
         
         if not df_admin.empty and col_jor_admin and all(col in df_admin.columns for col in ['Local', 'Visita']):
@@ -168,7 +168,6 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
                         
                         partido_str = f"{df_admin.at[idx, 'Local']} vs {df_admin.at[idx, 'Visita']}"
                         
-                        # ACTUALIZACIÓN EN BATCH
                         ws_apuestas = sh.worksheet('Apuestas')
                         datos_frescos = ws_apuestas.get_all_records()
                         
@@ -202,7 +201,7 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
             
         st.divider()
         
-        # CAMBIO 2: Dar/Quitar puntos manualmente
+        # --- AJUSTE MANUAL DE PUNTOS ---
         st.markdown("### ⚖️ Ajuste Manual de Puntos")
         st.write("Usa esta zona para dar puntos extra (bonus) o quitar puntos (penalizaciones).")
         if not df_apuestas.empty and 'Usuario' in df_apuestas.columns:
@@ -224,107 +223,132 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
     elif admin_pass != "":
         st.error("Contraseña incorrecta.")
 
-# 3. ZONA PREDICCIONES
-st.subheader("📝 Realizar Predicciones")
+# --- ZONA PRIVADA DE USUARIO (AUTENTICACIÓN) ---
+st.divider()
+st.subheader("🔐 Acceso Privado de Jugadores")
+
+# Inicializar variable de estado para controlar la sesión
+if 'usuario_autenticado' not in st.session_state:
+    st.session_state['usuario_autenticado'] = None
 
 df_usuarios = load_data('Usuarios')
-if not df_usuarios.empty and 'Usuario' in df_usuarios.columns:
-    lista_usuarios = df_usuarios['Usuario'].astype(str).str.strip().unique().tolist()
-else:
-    lista_usuarios = ["Dany", "Dani Veliz", "Raúl", "Andoni", "Endika", "Mikel", "Igor", "Jonathan", "Alberto", "Jon", "Hiago"]
 
-usuario = st.selectbox("Selecciona tu nombre:", lista_usuarios)
-fase_user = st.selectbox("Selecciona Fase:", hojas, key="user_fase")
-df_fase = load_data(fase_user)
-
-# Compatible con "Jornada" o "ID"
-col_jor_user = 'Jornada' if 'Jornada' in df_fase.columns else ('ID' if 'ID' in df_fase.columns else None)
-
-if not df_fase.empty and col_jor_user:
-    jornada_user = st.selectbox("Selecciona Jornada:", sorted(df_fase[col_jor_user].unique()), key="user_jor")
-    df_fase_filt = df_fase[df_fase[col_jor_user] == jornada_user]
-
-    if 'Usuario' in df_apuestas.columns and not df_apuestas.empty:
-        apuestas_usuario = df_apuestas[df_apuestas['Usuario'] == usuario].copy()
-        apuestas_usuario['partido_norm'] = apuestas_usuario['Partido'].str.strip().str.lower()
-        df_pendientes = df_fase_filt[~df_fase_filt.apply(lambda x: f"{x['Local']} vs {x['Visita']}".strip().lower() in apuestas_usuario['partido_norm'].tolist(), axis=1)]
-    else:
-        df_pendientes = df_fase_filt
-
-    if df_pendientes.empty:
-        st.info(f"¡{usuario}, ya has completado todos tus partidos en esta jornada!")
-    else:
-        st.write(f"Partidos pendientes para **{usuario}** en {jornada_user}: {len(df_pendientes)}")
-        df_editor = df_pendientes[['Local', 'Visita']].copy()
-        df_editor['Pred_Local'] = None
-        df_editor['Pred_Visita'] = None
-        
-        preds = st.data_editor(
-            df_editor, 
-            hide_index=True,
-            column_config={
-                "Local": st.column_config.TextColumn("Local", disabled=True),
-                "Visita": st.column_config.TextColumn("Visita", disabled=True),
-                "Pred_Local": st.column_config.NumberColumn("Pred. Local", min_value=0, step=1, required=True),
-                "Pred_Visita": st.column_config.NumberColumn("Pred. Visita", min_value=0, step=1, required=True)
-            }
-        )
-
-        if st.button("Guardar Predicciones"):
-            pendientes_de_guardar = preds.dropna(subset=['Pred_Local', 'Pred_Visita'])
-            if pendientes_de_guardar.empty:
-                st.warning("Por favor, rellena resultados antes de guardar.")
-            else:
-                with st.status("Guardando en la nube...", expanded=True) as status:
-                    nuevas = [[usuario, f"{row['Local']} vs {row['Visita']}", int(row['Pred_Local']), int(row['Pred_Visita']), 0, jornada_user] 
-                              for _, row in pendientes_de_guardar.iterrows()]
-                    sh.worksheet('Apuestas').append_rows(nuevas)
-                    st.cache_data.clear()
-                    status.update(label="¡Predicciones guardadas con éxito!", state="complete")
-                st.rerun()
-else:
-    st.warning("No hay jornadas configuradas para la fase seleccionada.")
-
-    # ==========================================
-# 4. HISTORIAL DE PREDICCIONES (SOLO VISUAL)
-# ==========================================
-st.divider()
-st.subheader(f"📊 Historial de Predicciones de {usuario}")
-
-if not df_apuestas.empty:
-    # 1. Filtramos las apuestas del usuario seleccionado
-    mis_apuestas = df_apuestas[df_apuestas['Usuario'] == usuario].copy()
+if not df_usuarios.empty and 'Usuario' in df_usuarios.columns and 'Password' in df_usuarios.columns:
     
-    if not mis_apuestas.empty:
-        # --- SOLUCIÓN AL KEYERROR ---
-        # Definimos las columnas ideales y cómo queremos que se muestren en la app
-        mapeo_columnas = {
-            'Jornada': 'Jornada/Ronda',
-            'Partido': 'Partido',
-            'Pred_Local': 'Pred. Local',
-            'Pred_Visita': 'Pred. Visitante',
-            'Puntos': 'Puntos Obtenidos'
-        }
+    # CASO A: El usuario NO ha iniciado sesión todavía
+    if st.session_state['usuario_autenticado'] is None:
+        col_u, col_p = st.columns(2)
+        user_input = col_u.selectbox("Selecciona tu nombre:", [""] + df_usuarios['Usuario'].unique().tolist())
+        pass_input = col_p.text_input("Introduce tu contraseña personal:", type="password")
         
-        # Filtramos de forma segura: solo agarramos las columnas que DE VERDAD existen en tu DataFrame
-        columnas_validas = [col for col in mapeo_columnas.keys() if col in mis_apuestas.columns]
-        
-        # Extraemos solo lo que existe
-        mis_apuestas_ver = mis_apuestas[columnas_validas].copy()
-        
-        # Renombramos solo las columnas que se lograron extraer
-        mis_apuestas_ver.rename(columns=mapeo_columnas, inplace=True)
-        # -----------------------------
-        
-        # 4. Lo mostramos en un componente de SOLO LECTURA
-        st.dataframe(
-            mis_apuestas_ver, 
-            use_container_width=True, 
-            hide_index=True
-        )
-        
-        st.caption(f"Has realizado un total de {len(mis_apuestas_ver)} predicciones.")
+        if st.button("Iniciar Sesión"):
+            fila_user = df_usuarios[df_usuarios['Usuario'] == user_input]
+            if not fila_user.empty:
+                pass_real = str(fila_user['Password'].values[0]).strip()
+                if pass_input.strip() == pass_real:
+                    st.session_state['usuario_autenticado'] = user_input
+                    st.success(f"¡Bienvenido/a, {user_input}!")
+                    st.rerun()
+                else:
+                    st.error("Contraseña incorrecta. Inténtalo de nuevo.")
+            else:
+                st.warning("Por favor, selecciona un usuario válido.")
+                
+    # CASO B: El usuario SÍ está correctamente logueado
     else:
-        st.info(f"Aún no tienes predicciones registradas, ¡sé el primero en apostar, {usuario}!")
+        usuario = st.session_state['usuario_autenticado']
+        
+        col_status, col_logout = st.columns([4, 1])
+        col_status.write(f"Conectado de forma segura como: **{usuario}**")
+        if col_logout.button("Cerrar Sesión 🚪", use_container_width=True):
+            st.session_state['usuario_autenticado'] = None
+            st.rerun()
+            
+        st.divider()
+
+        # 3. ZONA PREDICCIONES
+        st.subheader("📝 Realizar Predicciones")
+
+        fase_user = st.selectbox("Selecciona Fase:", hojas, key="user_fase")
+        df_fase = load_data(fase_user)
+
+        col_jor_user = 'Jornada' if 'Jornada' in df_fase.columns else ('ID' if 'ID' in df_fase.columns else None)
+
+        if not df_fase.empty and col_jor_user:
+            jornada_user = st.selectbox("Selecciona Jornada:", sorted(df_fase[col_jor_user].unique()), key="user_jor")
+            df_fase_filt = df_fase[df_fase[col_jor_user] == jornada_user]
+
+            if 'Usuario' in df_apuestas.columns and not df_apuestas.empty:
+                apuestas_usuario = df_apuestas[df_apuestas['Usuario'] == usuario].copy()
+                apuestas_usuario['partido_norm'] = apuestas_usuario['Partido'].str.strip().str.lower()
+                df_pendientes = df_fase_filt[~df_fase_filt.apply(lambda x: f"{x['Local']} vs {x['Visita']}".strip().lower() in apuestas_usuario['partido_norm'].tolist(), axis=1)]
+            else:
+                df_pendientes = df_fase_filt
+
+            if df_pendientes.empty:
+                st.info(f"¡{usuario}, ya has completado todos tus partidos en esta jornada!")
+            else:
+                st.write(f"Partidos pendientes para **{usuario}** en {jornada_user}: {len(df_pendientes)}")
+                df_editor = df_pendientes[['Local', 'Visita']].copy()
+                df_editor['Pred_Local'] = None
+                df_editor['Pred_Visita'] = None
+                
+                preds = st.data_editor(
+                    df_editor, 
+                    hide_index=True,
+                    column_config={
+                        "Local": st.column_config.TextColumn("Local", disabled=True),
+                        "Visita": st.column_config.TextColumn("Visita", disabled=True),
+                        "Pred_Local": st.column_config.NumberColumn("Pred. Local", min_value=0, step=1, required=True),
+                        "Pred_Visita": st.column_config.NumberColumn("Pred. Visita", min_value=0, step=1, required=True)
+                    }
+                )
+
+                if st.button("Guardar Predicciones"):
+                    pendientes_de_guardar = preds.dropna(subset=['Pred_Local', 'Pred_Visita'])
+                    if pendientes_de_guardar.empty:
+                        st.warning("Por favor, rellena resultados antes de guardar.")
+                    else:
+                        with st.status("Guardando en la nube...", expanded=True) as status:
+                            nuevas = [[usuario, f"{row['Local']} vs {row['Visita']}", int(row['Pred_Local']), int(row['Pred_Visita']), 0, jornada_user] 
+                                      for _, row in pendientes_de_guardar.iterrows()]
+                            sh.worksheet('Apuestas').append_rows(nuevas)
+                            st.cache_data.clear()
+                            status.update(label="¡Predicciones guardadas con éxito!", state="complete")
+                        st.rerun()
+        else:
+            st.warning("No hay jornadas configuradas para la fase seleccionada.")
+
+        # 4. HISTORIAL DE PREDICCIONES (EXCLUSIVO DEL USUARIO LOGUEADO)
+        st.divider()
+        st.subheader(f"📊 Tu Historial Personal de Predicciones")
+
+        if not df_apuestas.empty:
+            mis_apuestas = df_apuestas[df_apuestas['Usuario'] == usuario].copy()
+            
+            if not mis_apuestas.empty:
+                mapeo_columnas = {
+                    'Jornada': 'Jornada/Ronda',
+                    'Partido': 'Partido',
+                    'Pred_Local': 'Pred. Local',
+                    'Pred_Visita': 'Pred. Visitante',
+                    'Puntos': 'Puntos Obtenidos'
+                }
+                
+                columnas_validas = [col for col in mapeo_columnas.keys() if col in mis_apuestas.columns]
+                mis_apuestas_ver = mis_apuestas[columnas_validas].copy()
+                mis_apuestas_ver.rename(columns=mapeo_columnas, inplace=True)
+                
+                st.dataframe(
+                    mis_apuestas_ver, 
+                    use_container_width=True, 
+                    hide_index=True
+                )
+                st.caption(f"Has realizado un total de {len(mis_apuestas_ver)} predicciones.")
+            else:
+                st.info(f"Aún no tienes predicciones registradas. ¡Completa tus partidos pendientes arriba, {usuario}!")
+        else:
+            st.warning("No se encontraron registros en la base de datos de Apuestas.")
+
 else:
-    st.warning("No se encontraron registros en la base de datos de Apuestas.")
+    st.error("🚨 Error crítico: Comprueba que la pestaña 'Usuarios' existe en Google Sheets y tiene las columnas exactas 'Usuario' y 'Password'.")
