@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-from gspread_dataframe import set_with_dataframe
 
 # --- CONFIGURACIÓN ---
 st.set_page_config(layout="wide", page_title="Porra Mundialista")
@@ -17,7 +16,9 @@ def get_connection():
     return gspread.authorize(creds)
 
 client = get_connection()
-sh = client.open_by_key('1-n82WoLSk3b0XE59qIaTrf69R44qAAqu6iJqlDj0RDI')
+# Tip de experto: saca el ID a los secrets o a una variable clara arriba
+SPREADSHEET_ID = '1-n82WoLSk3b0XE59qIaTrf69R44qAAqu6iJqlDj0RDI'
+sh = client.open_by_key(SPREADSHEET_ID)
 
 @st.cache_data(ttl=10)
 def load_data(sheet_name):
@@ -28,7 +29,9 @@ def load_data(sheet_name):
                 return pd.DataFrame(columns=['Usuario', 'Partido', 'Pred_Local', 'Pred_Visita', 'Puntos', 'Jornada'])
             return pd.DataFrame(columns=['Jornada', 'Local', 'Visita', 'Goles_Real_Local', 'Goles_Real_Visita'])
         return pd.DataFrame(data)
-    except:
+    except Exception as e:
+        # Al menos te avisa en consola si algo va mal con los datos
+        print(f"Error cargando {sheet_name}: {e}")
         if sheet_name == 'Apuestas':
             return pd.DataFrame(columns=['Usuario', 'Partido', 'Pred_Local', 'Pred_Visita', 'Puntos', 'Jornada'])
         return pd.DataFrame(columns=['Jornada', 'Local', 'Visita', 'Goles_Real_Local', 'Goles_Real_Visita'])
@@ -37,15 +40,15 @@ def load_data(sheet_name):
 def calcular_puntos(pred_local, pred_visita, real_local, real_visita):
     try:
         p_l, p_v, r_l, r_v = int(pred_local), int(pred_visita), int(real_local), int(real_visita)
-        if p_l == r_l and p_v == r_v: return 3
+        if p_l == r_l and p_v == r_v: 
+            return 3  # Pleno
         pred_g = "L" if p_l > p_v else ("V" if p_v > p_l else "E")
         real_g = "L" if r_l > r_v else ("V" if r_v > r_l else "E")
-        return 1 if pred_g == real_g else 0
-    except:
+        return 1 if pred_g == real_g else 0  # Acierto de ganador/empate
+    except (ValueError, TypeError):
         return 0
 
 # --- INTERFAZ ---
-# Se excluye 'Usuarios' de las fases del torneo
 hojas = [w.title for w in sh.worksheets() if w.title not in ['Apuestas', 'Usuarios']]
 
 # 1. RANKING
@@ -54,6 +57,8 @@ df_apuestas = load_data('Apuestas')
 if not df_apuestas.empty and 'Puntos' in df_apuestas.columns:
     df_apuestas['Puntos'] = pd.to_numeric(df_apuestas['Puntos'], errors='coerce').fillna(0)
     ranking = df_apuestas.groupby('Usuario')['Puntos'].sum().sort_values(ascending=False).reset_index()
+    # Le damos un toque más pro al índice visual
+    ranking.index = ranking.index + 1
     st.table(ranking)
 
 st.divider()
@@ -63,7 +68,7 @@ with st.expander("⚙️ Zona Admin: Registrar Resultados"):
     fase_admin = st.selectbox("Selecciona Fase:", hojas, key="admin_fase")
     df_admin = load_data(fase_admin)
     
-    if not df_admin.empty and 'Jornada' in df_admin.columns and 'Local' in df_admin.columns and 'Visita' in df_admin.columns:
+    if not df_admin.empty and all(col in df_admin.columns for col in ['Jornada', 'Local', 'Visita']):
         jornada_admin = st.selectbox("Selecciona Jornada:", sorted(df_admin['Jornada'].unique()), key="admin_jor")
         df_admin_filt = df_admin[df_admin['Jornada'] == jornada_admin]
         
@@ -81,43 +86,48 @@ with st.expander("⚙️ Zona Admin: Registrar Resultados"):
                 r_v = col2.number_input("Goles Visita", 0, step=1)
                 
                 if st.button("Guardar y Recalcular Ranking"):
-                    # 1. Actualizar resultado real en la hoja de la fase
                     ws = sh.worksheet(fase_admin)
                     ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Local') + 1, r_l)
                     ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Visita') + 1, r_v)
                     
                     partido_str = f"{df_admin.at[idx, 'Local']} vs {df_admin.at[idx, 'Visita']}"
                     
-                    # 2. SOLUCIÓN DEFINITIVA DE CONCURRENCIA: Leer 'Apuestas' en tiempo real
+                    # ACTUALIZACIÓN EN BATCH (Adiós bloqueos de API de Google)
                     ws_apuestas = sh.worksheet('Apuestas')
                     datos_frescos = ws_apuestas.get_all_records()
                     
                     if datos_frescos:
                         df_fresco = pd.DataFrame(datos_frescos)
                         if 'Partido' in df_fresco.columns and 'Puntos' in df_fresco.columns:
-                            col_puntos_num = list(df_fresco.columns).index('Puntos') + 1
+                            col_puntos_letra = gspread.utils.rowcol_to_a1(1, list(df_fresco.columns).index('Puntos') + 1)[0]
                             
-                            # 3. Modificar únicamente las celdas necesarias sin tocar el resto de filas
+                            updates = []
                             for i, row in df_fresco.iterrows():
                                 if str(row['Partido']).strip().lower() == partido_str.strip().lower():
                                     nuevos_puntos = calcular_puntos(row['Pred_Local'], row['Pred_Visita'], r_l, r_v)
-                                    # i + 2 mapea perfectamente el índice de Pandas con la fila de Google Sheets (fila 1 es cabecera)
-                                    ws_apuestas.update_cell(i + 2, col_puntos_num, nuevos_puntos)
+                                    fila_sheet = i + 2
+                                    updates.append({
+                                        'range': f"{col_puntos_letra}{fila_sheet}",
+                                        'values': [[nuevos_puntos]]
+                                    })
+                            
+                            if updates:
+                                # Se ejecutan todos los updates en una sola llamada de red
+                                ws_apuestas.batch_update(updates)
                     
                     st.cache_data.clear()
-                    st.success("¡Resultados y puntos asignados con éxito sin alterar otras apuestas!")
+                    st.success("¡Resultados y puntos asignados de golpe!")
                     st.rerun()
             else:
                 st.error("No se pudo encontrar el índice del partido seleccionado.")
         else:
             st.warning("No hay partidos registrados para la jornada seleccionada.")
     else:
-        st.warning("La hoja de esta fase está vacía o le faltan las columnas básicas ('Jornada', 'Local', 'Visita').")
+        st.warning("La hoja está vacía o le faltan columnas básicas.")
 
 # 3. ZONA PREDICCIONES
 st.subheader("📝 Realizar Predicciones")
 
-# Carga dinámica de usuarios desde Google Sheets con tu lista original como respaldo
 df_usuarios = load_data('Usuarios')
 if not df_usuarios.empty and 'Usuario' in df_usuarios.columns:
     lista_usuarios = df_usuarios['Usuario'].astype(str).str.strip().unique().tolist()
@@ -129,7 +139,8 @@ fase_user = st.selectbox("Selecciona Fase:", hojas, key="user_fase")
 df_fase = load_data(fase_user)
 
 if not df_fase.empty and 'Jornada' in df_fase.columns:
-    jornada_user = st.selectbox("Selecciona Jornada:", sorted(df_fase['Jornase'].unique() if 'Jornase' in df_fase.columns else df_fase['Jornada'].unique()), key="user_jor")
+    # BUGFIX: Eliminada la errata de 'Jornase'
+    jornada_user = st.selectbox("Selecciona Jornada:", sorted(df_fase['Jornada'].unique()), key="user_jor")
     df_fase_filt = df_fase[df_fase['Jornada'] == jornada_user]
 
     if 'Usuario' in df_apuestas.columns and not df_apuestas.empty:
