@@ -15,7 +15,7 @@ def get_connection():
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     return gspread.authorize(creds)
 
-# OPTIMIZACIÓN: Función con caché para abrir el documento evitando bloqueos de cuota (Rate Limits)
+# OPTIMIZACIÓN: Función con caché para abrir el documento evitando bloqueos de cuota
 @st.cache_resource
 def get_spreadsheet(spreadsheet_id):
     client = get_connection()
@@ -70,12 +70,16 @@ st.divider()
 
 # 2. ZONA ADMINISTRADOR
 with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
-    # CAMBIO 1: Sistema de contraseña
     admin_pass = st.text_input("Contraseña de administrador:", type="password")
     
-    if admin_pass == "Adm1n1str@tor":  # Cambia "admin123" por la contraseña que quieras usar
+    if admin_pass == "Adm1n1str@tor":
         st.success("Acceso concedido")
         
+        # --- MENSAJE DE ÉXITO PERSISTENTE ---
+        if 'exito_admin' in st.session_state:
+            st.success(st.session_state['exito_admin'])
+            del st.session_state['exito_admin']  # Lo borramos para que no salga siempre
+            
         # --- NUEVA FUNCIÓN: AÑADIR PARTIDOS MANUALMENTE ---
         st.markdown("### 🆕 Añadir Nuevos Partidos Manualmente")
         st.write("Usa esta sección para añadir partidos de eliminación directa a medida que se definan.")
@@ -93,11 +97,38 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
             else:
                 try:
                     ws_fase = sh.worksheet(fase_nueva)
-                    # Insertamos la nueva fila: Jornada, Local, Visita, Goles_Real_Local, Goles_Real_Visita
-                    # Dejamos los goles vacíos ("") para que el admin los rellene después en el registrador de resultados
-                    ws_fase.append_row([jornada_nueva.strip(), equipo_local.strip(), equipo_visita.strip(), "", ""])
+                    # SOLUCIÓN COLUMNAS NATURALES: Leemos las cabeceras reales de la hoja
+                    headers = ws_fase.row_values(1)
+                    
+                    if not headers:
+                        # Fallback por si la hoja está en blanco
+                        headers = ['ID', 'Partido', 'Local', 'Visita', 'Goles_Real_Local', 'Goles_Real_Visita']
+                        ws_fase.append_row(headers)
+                        
+                    # Creamos una fila vacía con la misma longitud que las cabeceras
+                    nueva_fila = [""] * len(headers)
+                    
+                    # Asignamos dinámicamente según el nombre de la columna en Google Sheets
+                    if "Jornada" in headers: 
+                        nueva_fila[headers.index("Jornada")] = jornada_nueva.strip()
+                    elif "ID" in headers: 
+                        nueva_fila[headers.index("ID")] = jornada_nueva.strip()
+                        
+                    if "Partido" in headers: 
+                        nueva_fila[headers.index("Partido")] = f"{equipo_local.strip()} vs {equipo_visita.strip()}"
+                        
+                    if "Local" in headers: 
+                        nueva_fila[headers.index("Local")] = equipo_local.strip()
+                        
+                    if "Visita" in headers: 
+                        nueva_fila[headers.index("Visita")] = equipo_visita.strip()
+
+                    # Insertamos la fila perfecta
+                    ws_fase.append_row(nueva_fila)
                     st.cache_data.clear()
-                    st.success(f"¡Partido '{equipo_local} vs {equipo_visita}' añadido correctamente a la fase {fase_nueva}!")
+                    
+                    # SOLUCIÓN BARRA NOTIFICACIÓN: Guardamos el estado para que se vea tras recargar
+                    st.session_state['exito_admin'] = f"✅ ¡Partido '{equipo_local.strip()} vs {equipo_visita.strip()}' insertado correctamente en {fase_nueva}!"
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error al guardar el partido: {e}")
@@ -110,9 +141,12 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
         fase_admin = st.selectbox("Selecciona Fase:", hojas, key="admin_fase")
         df_admin = load_data(fase_admin)
         
-        if not df_admin.empty and all(col in df_admin.columns for col in ['Jornada', 'Local', 'Visita']):
-            jornada_admin = st.selectbox("Selecciona Jornada:", sorted(df_admin['Jornada'].unique()), key="admin_jor")
-            df_admin_filt = df_admin[df_admin['Jornada'] == jornada_admin]
+        # Actualizado para que tolere "ID" en lugar de "Jornada" si cambiaste la columna
+        col_jor_admin = 'Jornada' if 'Jornada' in df_admin.columns else ('ID' if 'ID' in df_admin.columns else None)
+        
+        if not df_admin.empty and col_jor_admin and all(col in df_admin.columns for col in ['Local', 'Visita']):
+            jornada_admin = st.selectbox("Selecciona Jornada:", sorted(df_admin[col_jor_admin].unique()), key="admin_jor")
+            df_admin_filt = df_admin[df_admin[col_jor_admin] == jornada_admin]
             
             opciones_partidos = df_admin_filt['Local'] + " vs " + df_admin_filt['Visita']
             
@@ -157,14 +191,14 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
                                     ws_apuestas.batch_update(updates)
                         
                         st.cache_data.clear()
-                        st.success("¡Resultados y puntos asignados de golpe!")
+                        st.session_state['exito_admin'] = "🏆 ¡Resultados y puntos asignados de golpe!"
                         st.rerun()
                 else:
                     st.error("No se pudo encontrar el índice del partido seleccionado.")
             else:
                 st.warning("No hay partidos registrados para la jornada seleccionada.")
         else:
-            st.warning("La hoja está vacía o le faltan columnas básicas.")
+            st.warning("La hoja está vacía o le faltan columnas básicas ('Jornada/ID', 'Local', 'Visita').")
             
         st.divider()
         
@@ -180,10 +214,9 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
             if st.button("Aplicar Ajuste de Puntos"):
                 if puntos_ajuste != 0:
                     ws_apuestas = sh.worksheet('Apuestas')
-                    # Añadimos una fila simulando una apuesta pero que solo suma puntos a ese usuario
                     ws_apuestas.append_row([usuario_ajuste, f"AJUSTE ADMIN: {motivo_ajuste}", 0, 0, puntos_ajuste, "AJUSTE"])
                     st.cache_data.clear()
-                    st.success(f"Se ha aplicado el ajuste de {puntos_ajuste} puntos a {usuario_ajuste}.")
+                    st.session_state['exito_admin'] = f"⚖️ Se ha aplicado el ajuste de {puntos_ajuste} puntos a {usuario_ajuste}."
                     st.rerun()
                 else:
                     st.warning("El ajuste de puntos no puede ser 0.")
@@ -204,9 +237,12 @@ usuario = st.selectbox("Selecciona tu nombre:", lista_usuarios)
 fase_user = st.selectbox("Selecciona Fase:", hojas, key="user_fase")
 df_fase = load_data(fase_user)
 
-if not df_fase.empty and 'Jornada' in df_fase.columns:
-    jornada_user = st.selectbox("Selecciona Jornada:", sorted(df_fase['Jornada'].unique()), key="user_jor")
-    df_fase_filt = df_fase[df_fase['Jornada'] == jornada_user]
+# Compatible con "Jornada" o "ID"
+col_jor_user = 'Jornada' if 'Jornada' in df_fase.columns else ('ID' if 'ID' in df_fase.columns else None)
+
+if not df_fase.empty and col_jor_user:
+    jornada_user = st.selectbox("Selecciona Jornada:", sorted(df_fase[col_jor_user].unique()), key="user_jor")
+    df_fase_filt = df_fase[df_fase[col_jor_user] == jornada_user]
 
     if 'Usuario' in df_apuestas.columns and not df_apuestas.empty:
         apuestas_usuario = df_apuestas[df_apuestas['Usuario'] == usuario].copy()
