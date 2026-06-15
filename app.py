@@ -1,3 +1,8 @@
+Aquí tienes el código completo con la sección de **"Registrar Resultados de Partidos"** comentada paso a paso para que ya no se renderice en la interfaz web de tu aplicación.
+
+He mantenido la estructura y las sangrías intactas para que puedas copiar y pegar directamente el archivo:
+
+```python
 import streamlit as st
 import pandas as pd
 import gspread
@@ -139,71 +144,71 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
                     
         st.divider()
         
-        # --- REGISTRAR RESULTADOS ---
-        st.markdown("### 📝 Registrar Resultados de Partidos")
-        
-        fase_admin = st.selectbox("Selecciona Fase:", hojas, key="admin_fase")
-        df_admin = load_data(SPREADSHEET_ID, fase_admin)
-        
-        col_jor_admin = 'Jornada' if 'Jornada' in df_admin.columns else ('ID' if 'ID' in df_admin.columns else None)
-        
-        if not df_admin.empty and col_jor_admin and all(col in df_admin.columns for col in ['Local', 'Visita']):
-            jornada_admin = st.selectbox("Selecciona Jornada:", sorted(df_admin[col_jor_admin].unique()), key="admin_jor")
-            df_admin_filt = df_admin[df_admin[col_jor_admin] == jornada_admin]
-            
-            opciones_partidos = df_admin_filt['Local'] + " vs " + df_admin_filt['Visita']
-            
-            if not opciones_partidos.empty:
-                partido_sel = st.selectbox("Partido:", opciones_partidos) # Corregido typo en variable
-                filtro_idx = df_admin_filt[df_admin_filt['Local'] + " vs " + df_admin_filt['Visita'] == partido_sel].index
-                
-                if len(filtro_idx) > 0:
-                    idx = filtro_idx[0]
-                    
-                    col1, col2 = st.columns(2)
-                    r_l = col1.number_input("Goles Local", 0, step=1)
-                    r_v = col2.number_input("Goles Visita", 0, step=1)
-                    
-                    if st.button("Guardar y Recalcular Ranking"):
-                        sh = get_spreadsheet(SPREADSHEET_ID)
-                        ws = sh.worksheet(fase_admin)
-                        ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Local') + 1, r_l)
-                        ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Visita') + 1, r_v)
-                        
-                        partido_str = f"{df_admin.at[idx, 'Local']} vs {df_admin.at[idx, 'Visita']}"
-                        
-                        ws_apuestas = sh.worksheet('Apuestas')
-                        datos_frescos = ws_apuestas.get_all_records()
-                        
-                        if datos_frescos:
-                            df_fresco = pd.DataFrame(datos_frescos)
-                            if 'Partido' in df_fresco.columns and 'Puntos' in df_fresco.columns:
-                                col_puntos_letra = gspread.utils.rowcol_to_a1(1, list(df_fresco.columns).index('Puntos') + 1)[0]
-                                
-                                updates = []
-                                for i, row in df_fresco.iterrows():
-                                    if str(row['Partido']).strip().lower() == partido_str.strip().lower():
-                                        nuevos_puntos = calcular_puntos(row['Pred_Local'], row['Pred_Visita'], r_l, r_v)
-                                        fila_sheet = i + 2
-                                        updates.append({
-                                            'range': f"{col_puntos_letra}{fila_sheet}",
-                                            'values': [[nuevos_puntos]]
-                                        })
-                                
-                                if updates:
-                                    ws_apuestas.batch_update(updates)
-                        
-                        st.cache_data.clear()
-                        st.session_state['exito_admin'] = "🏆 ¡Resultados y puntos asignados de golpe!"
-                        st.rerun()
-                else:
-                    st.error("No se pudo encontrar el índice del partido seleccionado.")
-            else:
-                st.warning("No hay partidos registrados para la jornada seleccionada.")
-        else:
-            st.warning("La hoja está vacía o le faltan columnas básicas ('Jornada/ID', 'Local', 'Visita').")
-            
-        st.divider()
+        # --- REGISTRAR RESULTADOS (COMENTADO PARA OCULTAR EN LA WEB) ---
+        # st.markdown("### 📝 Registrar Resultados de Partidos")
+        # 
+        # fase_admin = st.selectbox("Selecciona Fase:", hojas, key="admin_fase")
+        # df_admin = load_data(SPREADSHEET_ID, fase_admin)
+        # 
+        # col_jor_admin = 'Jornada' if 'Jornada' in df_admin.columns else ('ID' if 'ID' in df_admin.columns else None)
+        # 
+        # if not df_admin.empty and col_jor_admin and all(col in df_admin.columns for col in ['Local', 'Visita']):
+        #     jornada_admin = st.selectbox("Selecciona Jornada:", sorted(df_admin[col_jor_admin].unique()), key="admin_jor")
+        #     df_admin_filt = df_admin[df_admin[col_jor_admin] == jornada_admin]
+        #     
+        #     opciones_partidos = df_admin_filt['Local'] + " vs " + df_admin_filt['Visita']
+        #     
+        #     if not opciones_partidos.empty:
+        #         partido_sel = st.selectbox("Partido:", opciones_partidos) 
+        #         filtro_idx = df_admin_filt[df_admin_filt['Local'] + " vs " + df_admin_filt['Visita'] == partido_sel].index
+        #         
+        #         if len(filtro_idx) > 0:
+        #             idx = filtro_idx[0]
+        #             
+        #             col1, col2 = st.columns(2)
+        #             r_l = col1.number_input("Goles Local", 0, step=1)
+        #             r_v = col2.number_input("Goles Visita", 0, step=1)
+        #             
+        #             if st.button("Guardar y Recalcular Ranking"):
+        #                 sh = get_spreadsheet(SPREADSHEET_ID)
+        #                 ws = sh.worksheet(fase_admin)
+        #                 ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Local') + 1, r_l)
+        #                 ws.update_cell(idx + 2, df_admin.columns.get_loc('Goles_Real_Visita') + 1, r_v)
+        #                 
+        #                 partido_str = f"{df_admin.at[idx, 'Local']} vs {df_admin.at[idx, 'Visita']}"
+        #                 
+        #                 ws_apuestas = sh.worksheet('Apuestas')
+        #                 datos_frescos = ws_apuestas.get_all_records()
+        #                 
+        #                 if datos_frescos:
+        #                     df_fresco = pd.DataFrame(datos_frescos)
+        #                     if 'Partido' in df_fresco.columns and 'Puntos' in df_fresco.columns:
+        #                         col_puntos_letra = gspread.utils.rowcol_to_a1(1, list(df_fresco.columns).index('Puntos') + 1)[0]
+        #                         
+        #                         updates = []
+        #                         for i, row in df_fresco.iterrows():
+        #                             if str(row['Partido']).strip().lower() == partido_str.strip().lower():
+        #                                 nuevos_puntos = calcular_puntos(row['Pred_Local'], row['Pred_Visita'], r_l, r_v)
+        #                                 fila_sheet = i + 2
+        #                                 updates.append({
+        #                                     'range': f"{col_puntos_letra}{fila_sheet}",
+        #                                     'values': [[nuevos_puntos]]
+        #                                 })
+        #                         
+        #                         if updates:
+        #                             ws_apuestas.batch_update(updates)
+        #                 
+        #                 st.cache_data.clear()
+        #                 st.session_state['exito_admin'] = "🏆 ¡Resultados y puntos asignados de golpe!"
+        #                 st.rerun()
+        #         else:
+        #             st.error("No se pudo encontrar el índice del partido seleccionado.")
+        #     else:
+        #         st.warning("No hay partidos registrados para la jornada seleccionada.")
+        # else:
+        #     st.warning("La hoja está vacía o le faltan columnas básicas ('Jornada/ID', 'Local', 'Visita').")
+        # 
+        # st.divider()
         
         # --- AJUSTE MANUAL DE PUNTOS ---
         st.markdown("### ⚖️ Ajuste Manual de Puntos")
@@ -360,3 +365,5 @@ if not df_usuarios.empty and 'Usuario' in df_usuarios.columns and 'Password' in 
 
 else:
     st.error("🚨 Error crítico: Comprueba que la pestaña 'Usuarios' existe en Google Sheets y tiene las columnas exactas 'Usuario' y 'Password'.")
+
+```
