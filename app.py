@@ -102,7 +102,7 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
         
         #if st.button("➕ Insertar Partido"):
          #   if equipo_local.strip() == "" or equipo_visita.strip() == "":
-                st.error("Por favor, introduce el nombre de ambos equipos.")
+            #    st.error("Por favor, introduce el nombre de ambos equipos.")
           #  else:
            #     try:
                     #sh = get_spreadsheet(SPREADSHEET_ID)
