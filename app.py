@@ -90,52 +90,52 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
             del st.session_state['exito_admin']
             
         # --- AÑADIR PARTIDOS MANUALMENTE ---
-        st.markdown("### 🆕 Añadir Nuevos Partidos Manualmente")
-        st.write("Usa esta sección para añadir partidos de eliminación directa a medida que se definan.")
+        #st.markdown("### 🆕 Añadir Nuevos Partidos Manualmente")
+        #st.write("Usa esta sección para añadir partidos de eliminación directa a medida que se definan.")
         
-        fase_nueva = st.selectbox("Selecciona la Fase para añadir el partido:", hojas, key="add_fase")
+        #fase_nueva = st.selectbox("Selecciona la Fase para añadir el partido:", hojas, key="add_fase")
         
-        col_jor, col_loc, col_vis = st.columns(3)
-        jornada_nueva = col_jor.text_input("Jornada/Ronda (Ej: 16avos, Octavos 1):", value="")
-        equipo_local = col_loc.text_input("Equipo Local:")
-        equipo_visita = col_vis.text_input("Equipo Visitante:")
+        #col_jor, col_loc, col_vis = st.columns(3)
+        #jornada_nueva = col_jor.text_input("Jornada/Ronda (Ej: 16avos, Octavos 1):", value="")
+        #equipo_local = col_loc.text_input("Equipo Local:")
+        #equipo_visita = col_vis.text_input("Equipo Visitante:")
         
-        if st.button("➕ Insertar Partido"):
-            if equipo_local.strip() == "" or equipo_visita.strip() == "":
+        #if st.button("➕ Insertar Partido"):
+         #   if equipo_local.strip() == "" or equipo_visita.strip() == "":
                 st.error("Por favor, introduce el nombre de ambos equipos.")
-            else:
-                try:
-                    sh = get_spreadsheet(SPREADSHEET_ID)
-                    ws_fase = sh.worksheet(fase_nueva)
-                    headers = ws_fase.row_values(1)
+          #  else:
+           #     try:
+                    #sh = get_spreadsheet(SPREADSHEET_ID)
+                    #ws_fase = sh.worksheet(fase_nueva)
+                    #headers = ws_fase.row_values(1)
                     
-                    if not headers:
-                        headers = ['ID', 'Partido', 'Local', 'Visita', 'Goles_Real_Local', 'Goles_Real_Visita']
-                        ws_fase.append_row(headers)
-                        
-                    nueva_fila = [""] * len(headers)
-                    
-                    if "Jornada" in headers: 
-                        nueva_fila[headers.index("Jornada")] = jornada_nueva.strip()
-                    elif "ID" in headers: 
-                        nueva_fila[headers.index("ID")] = jornada_nueva.strip()
-                        
-                    if "Partido" in headers: 
-                        nueva_fila[headers.index("Partido")] = f"{equipo_local.strip()} vs {equipo_visita.strip()}"
-                        
-                    if "Local" in headers: 
-                        nueva_fila[headers.index("Local")] = equipo_local.strip()
-                        
-                    if "Visita" in headers: 
-                        nueva_fila[headers.index("Visita")] = equipo_visita.strip()
-
-                    ws_fase.append_row(nueva_fila)
-                    st.cache_data.clear()
-                    
-                    st.session_state['exito_admin'] = f"✅ ¡Partido '{equipo_local.strip()} vs {equipo_visita.strip()}' insertado correctamente en {fase_nueva}!"
-                    st.rerun()
+                   # if not headers:
+                  #      headers = ['ID', 'Partido', 'Local', 'Visita', 'Goles_Real_Local', 'Goles_Real_Visita']
+                 #       ws_fase.append_row(headers)
+                #        
+               #     nueva_fila = [""] * len(headers)
+              #      
+             #       if "Jornada" in headers: 
+            #            nueva_fila[headers.index("Jornada")] = jornada_nueva.strip()
+           #         elif "ID" in headers: 
+          #              nueva_fila[headers.index("ID")] = jornada_nueva.strip()
+         #               
+        #            if "Partido" in headers: 
+       #                 nueva_fila[headers.index("Partido")] = f"{equipo_local.strip()} vs {equipo_visita.strip()}"
+      #                  
+     #               if "Local" in headers: 
+    #                    nueva_fila[headers.index("Local")] = equipo_local.strip()
+   #                     
+  #                  if "Visita" in headers: 
+ #                       nueva_fila[headers.index("Visita")] = equipo_visita.strip()
+#
+            #        ws_fase.append_row(nueva_fila)
+           #         st.cache_data.clear()
+          #          
+          #          st.session_state['exito_admin'] = f"✅ ¡Partido '{equipo_local.strip()} vs {equipo_visita.strip()}' insertado correctamente en {fase_nueva}!"
+         #           st.rerun()
                 except Exception as e:
-                    st.error(f"Error al guardar el partido: {e}")
+        #            st.error(f"Error al guardar el partido: {e}")
                     
         st.divider()
         
