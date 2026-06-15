@@ -134,7 +134,7 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
           #          
           #          st.session_state['exito_admin'] = f"✅ ¡Partido '{equipo_local.strip()} vs {equipo_visita.strip()}' insertado correctamente en {fase_nueva}!"
          #           st.rerun()
-                except Exception as e:
+   #             except Exception as e:
         #            st.error(f"Error al guardar el partido: {e}")
                     
         st.divider()
