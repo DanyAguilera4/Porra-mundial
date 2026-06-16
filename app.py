@@ -4,7 +4,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # ─────────────────────────────────────────────
-# CONFIGURACIÓN Y ESTILOS (Se mantiene igual)
+# CONFIGURACIÓN Y ESTILOS
 # ─────────────────────────────────────────────
 st.set_page_config(layout="wide", page_title="Porra Mundialista · EIC", page_icon="⚽")
 
@@ -41,18 +41,18 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 .user-banner-name { font-size: 1.15rem; font-weight: 700; }
 .user-banner-pts  { font-size: 2rem; font-weight: 800; color: #c9a227; }
 .user-banner-label{ font-size: 0.75rem; opacity: 0.7; text-transform: uppercase; letter-spacing: 0.07em; }
+.missed-card { border: 1px solid #e0e0e0; border-radius: 10px; padding: 12px 16px; margin-bottom: 8px; background: #fafafa; border-left: 4px solid #bdbdbd; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("⚽ Porra Mundialista · EIC")
 
-# Botón global para refrescar de forma controlada sin tumbar la API
 if st.button("🔄 Refrescar marcadores y clasificación"):
     st.cache_data.clear()
     st.rerun()
 
 # ─────────────────────────────────────────────
-# CONEXIÓN Y CARGA DE DATOS (Caché optimizada)
+# CONEXIÓN Y CARGA DE DATOS
 # ─────────────────────────────────────────────
 @st.cache_resource
 def get_spreadsheet(spreadsheet_id):
@@ -63,12 +63,12 @@ def get_spreadsheet(spreadsheet_id):
 
 SPREADSHEET_ID = '1-n82WoLSk3b0XE59qIaTrf69R44qAAqu6iJqlDj0RDI'
 
-@st.cache_data(ttl=60) # Subido a 60s para proteger la cuota de la API
+@st.cache_data(ttl=60)
 def load_sheet_names(spreadsheet_id):
     spreadsheet = get_spreadsheet(spreadsheet_id)
     return [w.title for w in spreadsheet.worksheets() if w.title not in ['Apuestas', 'Usuarios', 'Clasificacion']]
 
-@st.cache_data(ttl=60) # Subido a 60s
+@st.cache_data(ttl=60)
 def load_data(spreadsheet_id, sheet_name):
     try:
         spreadsheet = get_spreadsheet(spreadsheet_id)
@@ -115,12 +115,18 @@ def badge_puntos(puntos, tiene_resultado):
     return '<span class="badge-fallo">❌ Fallo · 0 pts</span>'
 
 def validar_resultado_existente(val_local, val_visita):
-    """Corrige el bug del cero. Detecta si realmente hay un resultado numérico."""
+    """Detecta si realmente hay un resultado numérico (fix del bug del cero)."""
     vl = str(val_local).strip()
     vv = str(val_visita).strip()
     if vl in ['', 'None', 'nan'] or vv in ['', 'None', 'nan']:
         return False
     return vl.isdigit() and vv.isdigit()
+
+def tiene_resultado_row(row):
+    """Wrapper para usar validar_resultado_existente con .apply() en un DataFrame."""
+    return validar_resultado_existente(
+        row.get('Goles_Real_Local'), row.get('Goles_Real_Visita')
+    )
 
 # ─────────────────────────────────────────────
 # 1. RANKING GENERAL
@@ -172,11 +178,26 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
         if not df_admin.empty and col_jor_admin and all(c in df_admin.columns for c in ['Local', 'Visita']):
             jornada_admin = st.selectbox("Jornada:", sorted(df_admin[col_jor_admin].unique()), key="admin_jor")
             df_admin_filt = df_admin[df_admin[col_jor_admin] == jornada_admin]
-            opciones = df_admin_filt['Local'] + " vs " + df_admin_filt['Visita']
 
-            if not opciones.empty:
+            # ── FIX: excluir partidos que ya tienen resultado registrado ──
+            df_admin_sin_resultado = df_admin_filt[
+                ~df_admin_filt.apply(tiene_resultado_row, axis=1)
+            ]
+            # ─────────────────────────────────────────────────────────────
+
+            n_ya_registrados = len(df_admin_filt) - len(df_admin_sin_resultado)
+            if n_ya_registrados > 0:
+                st.caption(f"ℹ️ {n_ya_registrados} partido(s) ya tienen resultado registrado y no aparecen.")
+
+            opciones = df_admin_sin_resultado['Local'] + " vs " + df_admin_sin_resultado['Visita']
+
+            if opciones.empty:
+                st.success("✅ Todos los partidos de esta jornada ya tienen resultado registrado.")
+            else:
                 partido_sel = st.selectbox("Partido:", opciones)
-                idx = df_admin_filt[(df_admin_filt['Local'] + " vs " + df_admin_filt['Visita']) == partido_sel].index[0]
+                idx = df_admin_sin_resultado[
+                    (df_admin_sin_resultado['Local'] + " vs " + df_admin_sin_resultado['Visita']) == partido_sel
+                ].index[0]
                 fila_sheet = row_map_admin[idx]
 
                 col1, col2 = st.columns(2)
@@ -185,18 +206,15 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
 
                 if st.button("💾 Guardar y Recalcular Ranking"):
                     sh = get_spreadsheet(SPREADSHEET_ID)
-                    
-                    # 1. Actualizar el partido real
+
                     col_rl = df_admin.columns.get_loc('Goles_Real_Local') + 1
                     col_rv = df_admin.columns.get_loc('Goles_Real_Visita') + 1
                     sh.worksheet(fase_admin).update_cell(fila_sheet, col_rl, r_l)
                     sh.worksheet(fase_admin).update_cell(fila_sheet, col_rv, r_v)
 
-                    # 2. Recalcular apuestas (Seguro mediante coincidencia de texto, no por índice de fila estático)
                     partido_str = f"{df_admin.at[idx, 'Local']} vs {df_admin.at[idx, 'Visita']}"
                     ws_apuestas = sh.worksheet('Apuestas')
-                    
-                    # Descargamos los datos incluyendo número de fila real mediante rowcol
+
                     all_apuestas = ws_apuestas.get_all_records()
                     updates = []
                     if all_apuestas:
@@ -204,7 +222,7 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
                         if 'Partido' in df_fresco.columns and 'Puntos' in df_fresco.columns:
                             col_pts_idx = list(df_fresco.columns).index('Puntos') + 1
                             col_pts_letra = gspread.utils.rowcol_to_a1(1, col_pts_idx)[0]
-                            
+
                             for i, row in df_fresco.iterrows():
                                 if str(row['Partido']).strip().lower() == partido_str.strip().lower():
                                     nuevos_pts = calcular_puntos(row['Pred_Local'], row['Pred_Visita'], r_l, r_v)
@@ -219,7 +237,7 @@ with st.expander("⚙️ Zona Admin: Gestión del Torneo"):
                     st.session_state['exito_admin'] = f"🏆 Resultado {partido_str} guardado: {r_l}–{r_v}"
                     st.rerun()
 
-        # ── Ajuste Manual de Puntos (Se mantiene igual) ───────────────────
+        # ── Ajuste Manual de Puntos ────────────────────────────────────────
         st.markdown("### ⚖️ Ajuste Manual de Puntos")
         df_apuestas_admin = load_df(SPREADSHEET_ID, 'Apuestas')
         if not df_apuestas_admin.empty and 'Usuario' in df_apuestas_admin.columns:
@@ -263,19 +281,18 @@ if st.session_state['usuario_autenticado'] is None:
             st.error("Credenciales incorrectas.")
 else:
     usuario = st.session_state['usuario_autenticado']
-    
+
     _, col_logout = st.columns([5, 1])
     if col_logout.button("Cerrar sesión 🚪", use_container_width=True):
         st.session_state['usuario_autenticado'] = None
         st.rerun()
 
-    # Cálculo dinámico de puntos del usuario para el Banner
     df_apuestas = load_df(SPREADSHEET_ID, 'Apuestas')
     mis_pts = int(pd.to_numeric(df_apuestas[df_apuestas['Usuario'] == usuario]['Puntos'], errors='coerce').sum()) if not df_apuestas.empty else 0
-    
+
     st.markdown(f'<div class="user-banner"><div><div class="user-banner-label">Jugando como</div><div class="user-banner-name">👤 {usuario}</div></div><div style="text-align:right"><div class="user-banner-label">Puntos totales</div><div class="user-banner-pts">{mis_pts}</div></div></div>', unsafe_allow_html=True)
 
-    # ── FORMULARIO DE PREDICCIONES (Mejorado con st.form) ─────────────────
+    # ── FORMULARIO DE PREDICCIONES ─────────────────────────────────────────
     st.subheader("📝 Realizar Predicciones")
     fase_user = st.selectbox("Fase:", hojas, key="user_fase")
     df_fase, _ = load_data(SPREADSHEET_ID, fase_user)
@@ -287,31 +304,52 @@ else:
 
         apostados_norm = df_apuestas[df_apuestas['Usuario'] == usuario]['Partido'].str.strip().str.lower().tolist() if not df_apuestas.empty else []
         df_fase_filt['_partido_norm'] = (df_fase_filt['Local'] + " vs " + df_fase_filt['Visita']).str.strip().str.lower()
+        df_fase_filt['_tiene_resultado'] = df_fase_filt.apply(tiene_resultado_row, axis=1)
 
-        df_pendientes = df_fase_filt[~df_fase_filt['_partido_norm'].isin(apostados_norm)]
-        df_completados = df_fase_filt[df_fase_filt['_partido_norm'].isin(apostados_norm)]
+        df_ya_apostados = df_fase_filt[df_fase_filt['_partido_norm'].isin(apostados_norm)]
 
-        if not df_completados.empty:
-            with st.expander(f"✅ Ya apostados en {jornada_user} ({len(df_completados)})"):
-                for _, row in df_completados.iterrows():
-                    tiene_res = validar_resultado_existente(row.get('Goles_Real_Local'), row.get('Goles_Real_Visita'))
-                    res_str = f" · Resultado: **{row['Goles_Real_Local']}–{row['Goles_Real_Visita']}**" if tiene_res else ""
+        # ── FIX: pendientes = sin apuesta Y sin resultado todavía ──────────
+        df_pendientes = df_fase_filt[
+            ~df_fase_filt['_partido_norm'].isin(apostados_norm) &
+            ~df_fase_filt['_tiene_resultado']
+        ]
+
+        # ── NUEVO: partidos sin apuesta pero ya jugados (perdidos) ─────────
+        df_perdidos = df_fase_filt[
+            ~df_fase_filt['_partido_norm'].isin(apostados_norm) &
+            df_fase_filt['_tiene_resultado']
+        ]
+        # ──────────────────────────────────────────────────────────────────
+
+        if not df_ya_apostados.empty:
+            with st.expander(f"✅ Ya apostados en {jornada_user} ({len(df_ya_apostados)})"):
+                for _, row in df_ya_apostados.iterrows():
+                    res_str = f" · Resultado: **{row['Goles_Real_Local']}–{row['Goles_Real_Visita']}**" if row['_tiene_resultado'] else ""
                     st.markdown(f"⚽ **{row['Local']} vs {row['Visita']}**{res_str}")
 
+        # Partidos perdidos (sin apuesta y ya jugados)
+        if not df_perdidos.empty:
+            with st.expander(f"😔 Sin apuesta · Partido ya jugado ({len(df_perdidos)})"):
+                for _, row in df_perdidos.iterrows():
+                    st.markdown(
+                        f"**{row['Local']} vs {row['Visita']}** · "
+                        f"Resultado: **{row['Goles_Real_Local']}–{row['Goles_Real_Visita']}** · "
+                        f"<span style='color:#9e9e9e;font-size:0.85rem'>No apostaste a tiempo</span>",
+                        unsafe_allow_html=True
+                    )
+
         if df_pendientes.empty:
-            st.success(f"🎉 ¡{usuario}, ya has completado todos los partidos de esta jornada!")
+            if df_perdidos.empty:
+                st.success(f"🎉 ¡{usuario}, ya has completado todos los partidos de esta jornada!")
+            else:
+                st.info("No quedan partidos abiertos para apostar en esta jornada.")
         else:
-            # Envolver en formulario evita recargas intermedias molestas en el móvil
             with st.form("formulario_apuestas"):
                 st.caption(f"Partidos pendientes: **{len(df_pendientes)}**")
                 diccionario_inputs = {}
-                
+
                 for i, (_, row) in enumerate(df_pendientes.iterrows()):
-                    tiene_res = validar_resultado_existente(row.get('Goles_Real_Local'), row.get('Goles_Real_Visita'))
-                    if tiene_res:
-                        st.markdown(f"⚠️ **{row['Local']} vs {row['Visita']}** _(Ya jugado: {row['Goles_Real_Local']}–{row['Goles_Real_Visita']})_")
-                    else:
-                        st.markdown(f"**⚽ {row['Local']} vs {row['Visita']}**")
+                    st.markdown(f"**⚽ {row['Local']} vs {row['Visita']}**")
 
                     col_l, col_sep, col_v = st.columns([2, 1, 2])
                     with col_l:
@@ -319,12 +357,12 @@ else:
                     col_sep.markdown("<div style='text-align:center;padding-top:28px;font-size:1.2rem'>–</div>", unsafe_allow_html=True)
                     with col_v:
                         p_v = st.number_input(f"Goles {row['Visita']}", min_value=0, step=1, key=f"pv_{jornada_user}_{i}", value=0)
-                    
+
                     diccionario_inputs[i] = {'local': row['Local'], 'visita': row['Visita'], 'p_l': p_l, 'p_v': p_v}
                     st.markdown("---")
 
                 bot_guardar = st.form_submit_button("💾 Guardar todas las predicciones")
-                
+
                 if bot_guardar:
                     nuevas_filas = [
                         [usuario, f"{datos['local']} vs {datos['visita']}", int(datos['p_l']), int(datos['p_v']), 0, jornada_user]
@@ -335,7 +373,7 @@ else:
                         st.cache_data.clear()
                     st.rerun()
 
-    # ── HISTORIAL PERSONAL (Corregido bug del cero) ───────────────────────
+    # ── HISTORIAL PERSONAL ─────────────────────────────────────────────────
     st.divider()
     st.subheader("📊 Tu Historial de Predicciones")
 
@@ -364,7 +402,7 @@ else:
                 pts = int(pd.to_numeric(row.get('Puntos', 0), errors='coerce') or 0)
                 pred_l, pred_v = str(row.get('Pred_Local', '?')), str(row.get('Pred_Visita', '?'))
                 key = partido.lower()
-                
+
                 tiene_resultado = key in resultados_reales
                 real_l, real_v = resultados_reales.get(key, ('?', '?'))
 
